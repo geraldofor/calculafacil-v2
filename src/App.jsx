@@ -1,4 +1,12 @@
 import { useState, useEffect, createContext, useContext } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+// ============================================================
+// SUPABASE
+// ============================================================
+const SUPABASE_URL = "https://pudujexcbvyakjkwuvqk.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB1ZHVqZXhjYnZ5YWtqa3d1dnFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc5ODA0OTQsImV4cCI6MjA4MzU1NjQ5NH0.avgmyWtX0CmkqAUzkdy0bslc1q-ZzC4ZPpxsjwG48aQ";
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ============================================================
 // CONTEXTO GLOBAL
@@ -7,9 +15,6 @@ const AppContext = createContext();
 
 const useApp = () => useContext(AppContext);
 
-// ============================================================
-// DADOS MOCK (será substituído por Supabase)
-// ============================================================
 // EMAIL DO DONO — acesso full admin
 const ADMIN_EMAIL = "geraldofor@gmail.com";
 
@@ -300,19 +305,77 @@ function LandingPage({ onLogin, onRegister }) {
 // AUTH (LOGIN / REGISTRO)
 // ============================================================
 function AuthPage({ mode = "login", onAuth, onSwitch, onBack }) {
-  const [form, setForm] = useState({ name: "", email: "", password: "", plan: "individual", company: "", seats: 1 });
+  const [form, setForm] = useState({ name: "", email: "", password: "", company: "", seats: 1 });
   const [isCompany, setIsCompany] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleSubmit = () => {
-    if (mode === "login") {
-      if (form.email.trim().toLowerCase() === ADMIN_EMAIL) {
-        onAuth({ id: 1, name: "Geraldo", email: form.email, role: "admin", plan: "admin" });
+  const handleSubmit = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      if (mode === "login") {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: form.email.trim(),
+          password: form.password,
+        });
+        if (error) { setError("E-mail ou senha incorretos."); setLoading(false); return; }
+
+        // Busca perfil do usuário
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", data.user.id)
+          .single();
+
+        // Verifica trial
+        let trialDaysLeft = 0;
+        if (profile?.plan === "trial" && profile?.trial_start) {
+          const diff = (new Date() - new Date(profile.trial_start)) / (1000 * 60 * 60 * 24);
+          trialDaysLeft = Math.max(0, 5 - Math.floor(diff));
+        }
+
+        onAuth({
+          id: data.user.id,
+          name: profile?.full_name || form.email.split("@")[0],
+          email: data.user.email,
+          role: profile?.role || "user",
+          plan: profile?.plan || "trial",
+          trialDays: trialDaysLeft,
+          company: profile?.company,
+          seats: profile?.seats || 1,
+          blocked: profile?.blocked || false,
+        });
       } else {
-        onAuth({ id: 2, name: form.email.split("@")[0], email: form.email, role: "user", plan: "trial", trialDays: 5 });
+        // Cadastro
+        const { data, error } = await supabase.auth.signUp({
+          email: form.email.trim(),
+          password: form.password,
+          options: {
+            data: {
+              full_name: form.name,
+              company: isCompany ? form.company : null,
+              seats: isCompany ? form.seats : 1,
+            }
+          }
+        });
+        if (error) { setError(error.message); setLoading(false); return; }
+
+        onAuth({
+          id: data.user?.id,
+          name: form.name,
+          email: form.email,
+          role: form.email.trim().toLowerCase() === ADMIN_EMAIL ? "admin" : "user",
+          plan: "trial",
+          trialDays: 5,
+          company: isCompany ? form.company : null,
+          seats: isCompany ? form.seats : 1,
+        });
       }
-    } else {
-      onAuth({ id: Date.now(), name: form.name, email: form.email, role: isCompany ? "company_admin" : "user", plan: "trial", trialDays: 5, company: isCompany ? form.company : null, seats: isCompany ? form.seats : 1 });
+    } catch (e) {
+      setError("Erro inesperado. Tente novamente.");
     }
+    setLoading(false);
   };
 
   return (
@@ -350,8 +413,14 @@ function AuthPage({ mode = "login", onAuth, onSwitch, onBack }) {
             </div>
           )}
 
-          <Button onClick={handleSubmit} className="w-full justify-center py-3 text-base mt-2">
-            {mode === "login" ? "Entrar" : "Criar conta e começar grátis"}
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600">
+              ⚠️ {error}
+            </div>
+          )}
+
+          <Button onClick={handleSubmit} disabled={loading} className="w-full justify-center py-3 text-base mt-2">
+            {loading ? "Aguarde..." : mode === "login" ? "Entrar" : "Criar conta e começar grátis"}
           </Button>
 
           <p className="text-center text-sm text-gray-500">
@@ -1372,16 +1441,72 @@ function Dashboard({ user, onLogout, onGoAdmin }) {
 // APP ROOT
 // ============================================================
 export default function App() {
-  const [screen, setScreen] = useState("login");
+  const [screen, setScreen] = useState("loading");
   const [user, setUser] = useState(null);
 
+  useEffect(() => {
+    // Verifica se há sessão ativa
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", session.user.id)
+          .single();
+
+        let trialDaysLeft = 0;
+        if (profile?.plan === "trial" && profile?.trial_start) {
+          const diff = (new Date() - new Date(profile.trial_start)) / (1000 * 60 * 60 * 24);
+          trialDaysLeft = Math.max(0, 5 - Math.floor(diff));
+        }
+
+        const userData = {
+          id: session.user.id,
+          name: profile?.full_name || session.user.email.split("@")[0],
+          email: session.user.email,
+          role: profile?.role || "user",
+          plan: profile?.plan || "trial",
+          trialDays: trialDaysLeft,
+          company: profile?.company,
+          seats: profile?.seats || 1,
+        };
+        setUser(userData);
+        setScreen(userData.role === "admin" ? "admin" : "app");
+      } else {
+        setScreen("login");
+      }
+    });
+
+    // Escuta mudanças de autenticação
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) { setUser(null); setScreen("login"); }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   const handleAuth = (userData) => {
+    if (userData.blocked) { alert("Acesso bloqueado. Entre em contato com o suporte."); return; }
     setUser(userData);
     if (userData.role === "admin") setScreen("admin");
     else setScreen("app");
   };
 
-  const handleLogout = () => { setUser(null); setScreen("login"); };
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setScreen("login");
+  };
+
+  if (screen === "loading") return (
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+      <div className="text-white text-center">
+        <div className="text-4xl mb-4">⚡</div>
+        <div className="text-xl font-black">Calcula Fácil</div>
+        <div className="text-slate-400 text-sm mt-2">Carregando...</div>
+      </div>
+    </div>
+  );
 
   if (screen === "landing") return <LandingPage onLogin={() => setScreen("login")} onRegister={() => setScreen("register")} />;
   if (screen === "login") return <AuthPage mode="login" onAuth={handleAuth} onSwitch={() => setScreen("register")} onBack={() => setScreen("landing")} />;
