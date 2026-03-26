@@ -1388,3 +1388,4 @@ export default function App() {
   if (screen === "register") return <AuthPage mode="register" onAuth={handleAuth} onSwitch={() => setScreen("login")} onBack={() => setScreen("landing")} />;
   if (screen === "admin") return <PainelAdmin onLogout={handleLogout} />;
   if (screen === "app") return <Dashboard user={user} onLogout={handleLogout} onGoAdmin={() => setScreen("admin")} />;
+}
