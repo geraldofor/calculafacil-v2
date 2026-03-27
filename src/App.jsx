@@ -1040,14 +1040,150 @@ function ModuloReemissao() {
   );
 }
 
-function PainelAdmin({ onLogout }) {
+// ============================================================
+// CONFIGURAÇÕES DO SISTEMA — salva no Supabase
+// ============================================================
+function ConfiguracoesSistema() {
+  const [cfg, setCfg] = useState({
+    preco_individual: "49.99", preco_empresarial: "49.99", dias_trial: "5",
+    rav_padrao: "7", fee_padrao: "157.76", rav_minimo: "200",
+    mp_public_key: "", mp_access_token: "",
+  });
+  const [saving, setSaving] = useState("");
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    supabase.from("configuracoes").select("*").single().then(({ data }) => {
+      if (data) setCfg(c => ({ ...c, ...data }));
+    });
+  }, []);
+
+  const salvar = async (campos, label) => {
+    setSaving(label);
+    setMsg("");
+    const { error } = await supabase.from("configuracoes")
+      .upsert({ id: 1, ...campos }, { onConflict: "id" });
+    setSaving("");
+    setMsg(error ? "❌ Erro ao salvar." : `✅ ${label} salvo!`);
+    setTimeout(() => setMsg(""), 3000);
+  };
+
+  const upd = (k, v) => setCfg(c => ({ ...c, [k]: v }));
+
+  return (
+    <>
+      <h2 className="text-2xl font-black text-gray-900">Configurações do Sistema</h2>
+      {msg && <div className={`p-3 rounded-xl text-sm font-semibold ${msg.startsWith("✅") ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>{msg}</div>}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card>
+          <h3 className="font-bold text-gray-800 mb-4">💰 Planos e Preços</h3>
+          <div className="space-y-3">
+            <Input label="Preço Individual (R$/mês)" value={cfg.preco_individual} onChange={e => upd("preco_individual", e.target.value)} />
+            <Input label="Preço por Acesso Empresarial (R$/mês)" value={cfg.preco_empresarial} onChange={e => upd("preco_empresarial", e.target.value)} />
+            <Input label="Dias de Trial Gratuito" value={cfg.dias_trial} onChange={e => upd("dias_trial", e.target.value)} />
+          </div>
+          <Button className="mt-4" disabled={saving === "Preços"} onClick={() => salvar({ preco_individual: cfg.preco_individual, preco_empresarial: cfg.preco_empresarial, dias_trial: cfg.dias_trial }, "Preços")}>
+            {saving === "Preços" ? "Salvando..." : "Salvar Preços"}
+          </Button>
+        </Card>
+        <Card>
+          <h3 className="font-bold text-gray-800 mb-4">🧮 Padrões de Cálculo</h3>
+          <div className="space-y-3">
+            <Input label="RAV Padrão (%)" value={cfg.rav_padrao} onChange={e => upd("rav_padrao", e.target.value)} />
+            <Input label="FEE Padrão (BRL)" value={cfg.fee_padrao} onChange={e => upd("fee_padrao", e.target.value)} />
+            <Input label="RAV Mínimo Reemissão (R$)" value={cfg.rav_minimo} onChange={e => upd("rav_minimo", e.target.value)} />
+          </div>
+          <Button className="mt-4" disabled={saving === "Padrões"} onClick={() => salvar({ rav_padrao: cfg.rav_padrao, fee_padrao: cfg.fee_padrao, rav_minimo: cfg.rav_minimo }, "Padrões")}>
+            {saving === "Padrões" ? "Salvando..." : "Salvar Padrões"}
+          </Button>
+        </Card>
+        <Card>
+          <h3 className="font-bold text-gray-800 mb-4">🔐 Conta Master</h3>
+          <div className="space-y-3">
+            <Input label="E-mail Master" defaultValue="geraldofor@gmail.com" disabled />
+            <Input label="Nome" defaultValue="Geraldo" />
+          </div>
+          <Button className="mt-4">Atualizar</Button>
+        </Card>
+        <Card>
+          <h3 className="font-bold text-gray-800 mb-4">💳 Mercado Pago</h3>
+          <div className="space-y-3">
+            <Input label="Public Key" value={cfg.mp_public_key} onChange={e => upd("mp_public_key", e.target.value)} placeholder="APP_USR-..." />
+            <Input label="Access Token" value={cfg.mp_access_token} onChange={e => upd("mp_access_token", e.target.value)} placeholder="APP_USR-..." />
+          </div>
+          <Button className="mt-4" disabled={saving === "Chaves"} onClick={() => salvar({ mp_public_key: cfg.mp_public_key, mp_access_token: cfg.mp_access_token }, "Chaves")}>
+            {saving === "Chaves" ? "Salvando..." : "Salvar Chaves"}
+          </Button>
+        </Card>
+      </div>
+    </>
+  );
+}
+
+// ============================================================
   const [tab, setTab] = useState("Dashboard");
+  const [users, setUsers] = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [novoUser, setNovoUser] = useState({ name: "", email: "", plan: "trial", company: "", seats: 1 });
+  const [savingUser, setSavingUser] = useState(false);
+  const [userMsg, setUserMsg] = useState("");
+
+  // Carrega usuários reais do Supabase
+  const carregarUsuarios = async () => {
+    setLoadingUsers(true);
+    const { data, error } = await supabase.from("profiles").select("*").order("created_at", { ascending: false });
+    if (!error && data) setUsers(data);
+    setLoadingUsers(false);
+  };
+
+  useEffect(() => { if (tab === "Usuários") carregarUsuarios(); }, [tab]);
+
+  // Bloquear/desbloquear usuário
+  const toggleBloquear = async (id, bloqueado) => {
+    await supabase.from("profiles").update({ blocked: !bloqueado }).eq("id", id);
+    carregarUsuarios();
+  };
+
+  // Criar novo usuário via convite
+  const criarUsuario = async () => {
+    setSavingUser(true);
+    setUserMsg("");
+    try {
+      const { error } = await supabase.auth.admin.inviteUserByEmail(novoUser.email, {
+        data: { full_name: novoUser.name, company: novoUser.company, seats: novoUser.seats }
+      });
+      if (error) {
+        // Fallback: cria direto na tabela profiles com signUp
+        const { error: signUpError } = await supabase.auth.signUp({
+          email: novoUser.email,
+          password: Math.random().toString(36).slice(-10) + "A1!",
+          options: { data: { full_name: novoUser.name } }
+        });
+        if (signUpError) { setUserMsg("Erro: " + signUpError.message); setSavingUser(false); return; }
+      }
+      setUserMsg("✅ Convite enviado para " + novoUser.email);
+      setNovoUser({ name: "", email: "", plan: "trial", company: "", seats: 1 });
+      setTimeout(() => { setShowModal(false); setUserMsg(""); carregarUsuarios(); }, 2000);
+    } catch (e) {
+      setUserMsg("Erro inesperado.");
+    }
+    setSavingUser(false);
+  };
+
+  // Dados mock para dashboard financeiro (será substituído por dados reais)
   const totalReceita = MOCK_PAYMENTS.filter(p => p.status === "pago").reduce((a, p) => a + p.valor, 0);
   const totalPendente = MOCK_PAYMENTS.filter(p => p.status === "pendente").reduce((a, p) => a + p.valor, 0);
   const totalCancelado = MOCK_PAYMENTS.filter(p => p.status === "cancelado").reduce((a, p) => a + p.valor, 0);
-  const totalUsuarios = MOCK_USERS.filter(u => u.role !== "admin").length;
-  const ativos = MOCK_USERS.filter(u => u.status === "active").length;
-  const trials = MOCK_USERS.filter(u => u.status === "trial").length;
+  const totalUsuarios = users.filter(u => u.role !== "admin").length;
+  const ativos = users.filter(u => u.plan === "individual" || u.plan === "empresarial" || u.plan === "admin").length;
+  const trials = users.filter(u => u.plan === "trial").length;
+
+  const trialDaysLeft = (trialStart) => {
+    if (!trialStart) return 0;
+    const diff = (new Date() - new Date(trialStart)) / (1000 * 60 * 60 * 24);
+    return Math.max(0, 5 - Math.floor(diff));
+  };
 
   const menus = [
     { id: "Dashboard", icon: "📊", grupo: "admin" },
@@ -1061,6 +1197,41 @@ function PainelAdmin({ onLogout }) {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Modal Novo Usuário */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md">
+            <h3 className="font-black text-lg text-gray-900 mb-4">➕ Novo Usuário</h3>
+            <div className="space-y-3">
+              <Input label="Nome completo" value={novoUser.name} onChange={e => setNovoUser({...novoUser, name: e.target.value})} placeholder="Nome do usuário" />
+              <Input label="E-mail" type="email" value={novoUser.email} onChange={e => setNovoUser({...novoUser, email: e.target.value})} placeholder="email@exemplo.com" />
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Plano</label>
+                <select value={novoUser.plan} onChange={e => setNovoUser({...novoUser, plan: e.target.value})}
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="trial">Trial (5 dias)</option>
+                  <option value="individual">Individual</option>
+                  <option value="empresarial">Empresarial</option>
+                </select>
+              </div>
+              {novoUser.plan === "empresarial" && (
+                <div className="flex gap-3">
+                  <Input label="Empresa" value={novoUser.company} onChange={e => setNovoUser({...novoUser, company: e.target.value})} placeholder="Nome da empresa" />
+                  <Input label="Acessos" type="number" min="1" value={novoUser.seats} onChange={e => setNovoUser({...novoUser, seats: parseInt(e.target.value)})} />
+                </div>
+              )}
+              {userMsg && <div className={`text-sm p-3 rounded-lg ${userMsg.startsWith("✅") ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>{userMsg}</div>}
+            </div>
+            <div className="flex gap-3 mt-5">
+              <Button onClick={criarUsuario} disabled={savingUser || !novoUser.email}>
+                {savingUser ? "Enviando..." : "📧 Enviar Convite"}
+              </Button>
+              <Button variant="secondary" onClick={() => { setShowModal(false); setUserMsg(""); }}>Cancelar</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header Admin */}
       <header className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between border-b border-slate-700">
         <div className="flex items-center gap-4">
@@ -1084,7 +1255,6 @@ function PainelAdmin({ onLogout }) {
               <span>{m.icon}</span>{m.id}
             </button>
           ))}
-
           <div className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3 px-3 mt-5">Ferramentas</div>
           {menus.filter(m => m.grupo === "ferramentas").map(m => (
             <button key={m.id} onClick={() => setTab(m.id)}
@@ -1093,7 +1263,6 @@ function PainelAdmin({ onLogout }) {
               <span>{m.icon}</span>{m.id}
             </button>
           ))}
-
           <div className="mt-6 bg-purple-50 border border-purple-200 rounded-xl p-3 text-xs text-purple-700">
             <div className="font-bold mb-1">🔐 Acesso Full</div>
             <div className="text-purple-500">geraldofor@gmail.com</div>
@@ -1106,8 +1275,6 @@ function PainelAdmin({ onLogout }) {
           {tab === "Dashboard" && (
             <>
               <h2 className="text-2xl font-black text-gray-900">Dashboard</h2>
-
-              {/* KPIs */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
                   { label: "Receita Mensal", valor: `R$ ${totalReceita.toFixed(2)}`, cor: "text-green-600", bg: "bg-green-50 border-green-200", icon: "💰" },
@@ -1122,56 +1289,27 @@ function PainelAdmin({ onLogout }) {
                   </div>
                 ))}
               </div>
-
-              {/* Resumo Financeiro */}
               <div className="grid grid-cols-3 gap-4">
-                <Card className="text-center">
-                  <div className="text-xs text-gray-400 mb-1">RECEBIDO</div>
-                  <div className="text-2xl font-black text-green-600">R$ {totalReceita.toFixed(2)}</div>
-                </Card>
-                <Card className="text-center">
-                  <div className="text-xs text-gray-400 mb-1">PENDENTE</div>
-                  <div className="text-2xl font-black text-yellow-500">R$ {totalPendente.toFixed(2)}</div>
-                </Card>
-                <Card className="text-center">
-                  <div className="text-xs text-gray-400 mb-1">CANCELADO</div>
-                  <div className="text-2xl font-black text-red-400">R$ {totalCancelado.toFixed(2)}</div>
-                </Card>
+                <Card className="text-center"><div className="text-xs text-gray-400 mb-1">RECEBIDO</div><div className="text-2xl font-black text-green-600">R$ {totalReceita.toFixed(2)}</div></Card>
+                <Card className="text-center"><div className="text-xs text-gray-400 mb-1">PENDENTE</div><div className="text-2xl font-black text-yellow-500">R$ {totalPendente.toFixed(2)}</div></Card>
+                <Card className="text-center"><div className="text-xs text-gray-400 mb-1">CANCELADO</div><div className="text-2xl font-black text-red-400">R$ {totalCancelado.toFixed(2)}</div></Card>
               </div>
-
-              {/* Últimos pagamentos */}
               <Card>
                 <h3 className="font-bold text-gray-800 mb-4">📋 Últimos Pagamentos</h3>
                 <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-xs text-gray-400 border-b pb-2">
-                      <th className="text-left py-2">Usuário</th>
-                      <th className="text-left py-2">Plano</th>
-                      <th className="text-left py-2">Valor</th>
-                      <th className="text-left py-2">Método</th>
-                      <th className="text-left py-2">Data</th>
-                      <th className="text-left py-2">Status</th>
+                  <thead><tr className="text-xs text-gray-400 border-b pb-2">
+                    <th className="text-left py-2">Usuário</th><th className="text-left py-2">Plano</th>
+                    <th className="text-left py-2">Valor</th><th className="text-left py-2">Método</th>
+                    <th className="text-left py-2">Data</th><th className="text-left py-2">Status</th>
+                  </tr></thead>
+                  <tbody>{MOCK_PAYMENTS.map(p => (
+                    <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50 transition-all">
+                      <td className="py-2"><div className="font-medium">{p.user}</div><div className="text-xs text-gray-400">{p.email}</div></td>
+                      <td>{p.plan}</td><td className="font-bold text-gray-800">R$ {p.valor.toFixed(2)}</td>
+                      <td className="text-gray-500">{p.metodo}</td><td className="text-gray-400">{p.data}</td>
+                      <td><Badge color={p.status === "pago" ? "green" : p.status === "pendente" ? "yellow" : "red"}>{p.status}</Badge></td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {MOCK_PAYMENTS.map(p => (
-                      <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50 transition-all">
-                        <td className="py-2">
-                          <div className="font-medium">{p.user}</div>
-                          <div className="text-xs text-gray-400">{p.email}</div>
-                        </td>
-                        <td>{p.plan}</td>
-                        <td className="font-bold text-gray-800">R$ {p.valor.toFixed(2)}</td>
-                        <td className="text-gray-500">{p.metodo}</td>
-                        <td className="text-gray-400">{p.data}</td>
-                        <td>
-                          <Badge color={p.status === "pago" ? "green" : p.status === "pendente" ? "yellow" : "red"}>
-                            {p.status}
-                          </Badge>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
+                  ))}</tbody>
                 </table>
               </Card>
             </>
@@ -1182,59 +1320,49 @@ function PainelAdmin({ onLogout }) {
             <>
               <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-black text-gray-900">Gestão de Usuários</h2>
-                <Button>+ Novo Usuário</Button>
+                <Button onClick={() => setShowModal(true)}>+ Novo Usuário</Button>
               </div>
-
               <div className="grid grid-cols-3 gap-4">
-                <Card className="text-center"><div className="text-2xl font-black text-blue-600">{totalUsuarios}</div><div className="text-xs text-gray-500">Total</div></Card>
+                <Card className="text-center"><div className="text-2xl font-black text-blue-600">{users.length}</div><div className="text-xs text-gray-500">Total</div></Card>
                 <Card className="text-center"><div className="text-2xl font-black text-green-600">{ativos}</div><div className="text-xs text-gray-500">Ativos</div></Card>
                 <Card className="text-center"><div className="text-2xl font-black text-yellow-500">{trials}</div><div className="text-xs text-gray-500">Em Trial</div></Card>
               </div>
-
               <Card>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-xs text-gray-400 border-b">
-                      <th className="text-left py-2">Usuário</th>
-                      <th className="text-left py-2">Plano</th>
-                      <th className="text-left py-2">Status</th>
-                      <th className="text-left py-2">Empresa</th>
-                      <th className="text-left py-2">Cadastro</th>
-                      <th className="text-left py-2">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {MOCK_USERS.map(u => (
+                {loadingUsers ? (
+                  <div className="text-center text-gray-400 py-8">Carregando usuários...</div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead><tr className="text-xs text-gray-400 border-b">
+                      <th className="text-left py-2">Usuário</th><th className="text-left py-2">Plano</th>
+                      <th className="text-left py-2">Status</th><th className="text-left py-2">Empresa</th>
+                      <th className="text-left py-2">Cadastro</th><th className="text-left py-2">Ações</th>
+                    </tr></thead>
+                    <tbody>{users.map(u => (
                       <tr key={u.id} className="border-b border-gray-50 hover:bg-gray-50 transition-all">
-                        <td className="py-2">
-                          <div className="font-medium">{u.name}</div>
-                          <div className="text-xs text-gray-400">{u.email}</div>
-                        </td>
+                        <td className="py-2"><div className="font-medium">{u.full_name || "—"}</div><div className="text-xs text-gray-400">{u.email}</div></td>
+                        <td><Badge color={u.role === "admin" ? "purple" : u.plan === "individual" ? "blue" : u.plan === "empresarial" ? "green" : "yellow"}>{u.plan}</Badge></td>
                         <td>
-                          <Badge color={u.role === "admin" ? "purple" : u.plan === "individual" ? "blue" : u.plan === "empresarial" ? "green" : "yellow"}>
-                            {u.plan}
-                          </Badge>
-                        </td>
-                        <td>
-                          <Badge color={u.status === "active" ? "green" : u.status === "trial" ? "yellow" : "red"}>
-                            {u.status === "trial" ? `Trial (${u.trialDays}d restantes)` : u.status}
-                          </Badge>
+                          {u.blocked ? <Badge color="red">Bloqueado</Badge>
+                          : u.plan === "trial" ? <Badge color="yellow">Trial ({trialDaysLeft(u.trial_start)}d)</Badge>
+                          : <Badge color="green">Ativo</Badge>}
                         </td>
                         <td className="text-gray-500">{u.company || "—"}</td>
-                        <td className="text-gray-400">{u.createdAt}</td>
+                        <td className="text-gray-400">{new Date(u.created_at).toLocaleDateString("pt-BR")}</td>
                         <td>
                           {u.role !== "admin" && (
                             <div className="flex gap-2">
-                              <Button variant="secondary" className="text-xs py-1 px-2">Editar</Button>
-                              <Button variant="danger" className="text-xs py-1 px-2">Bloquear</Button>
+                              <Button variant={u.blocked ? "success" : "danger"} className="text-xs py-1 px-2"
+                                onClick={() => toggleBloquear(u.id, u.blocked)}>
+                                {u.blocked ? "Desbloquear" : "Bloquear"}
+                              </Button>
                             </div>
                           )}
                           {u.role === "admin" && <Badge color="purple">MASTER</Badge>}
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    ))}</tbody>
+                  </table>
+                )}
               </Card>
             </>
           )}
@@ -1243,105 +1371,33 @@ function PainelAdmin({ onLogout }) {
           {tab === "Pagamentos" && (
             <>
               <h2 className="text-2xl font-black text-gray-900">Controle Financeiro</h2>
-
               <div className="grid grid-cols-3 gap-4">
-                <Card className="text-center bg-green-50 border-green-200">
-                  <div className="text-xs text-gray-400 mb-1">RECEBIDO</div>
-                  <div className="text-3xl font-black text-green-600">R$ {totalReceita.toFixed(2)}</div>
-                </Card>
-                <Card className="text-center bg-yellow-50 border-yellow-200">
-                  <div className="text-xs text-gray-400 mb-1">PENDENTE</div>
-                  <div className="text-3xl font-black text-yellow-500">R$ {totalPendente.toFixed(2)}</div>
-                </Card>
-                <Card className="text-center bg-red-50 border-red-200">
-                  <div className="text-xs text-gray-400 mb-1">CANCELADO</div>
-                  <div className="text-3xl font-black text-red-400">R$ {totalCancelado.toFixed(2)}</div>
-                </Card>
+                <Card className="text-center bg-green-50 border-green-200"><div className="text-xs text-gray-400 mb-1">RECEBIDO</div><div className="text-3xl font-black text-green-600">R$ {totalReceita.toFixed(2)}</div></Card>
+                <Card className="text-center bg-yellow-50 border-yellow-200"><div className="text-xs text-gray-400 mb-1">PENDENTE</div><div className="text-3xl font-black text-yellow-500">R$ {totalPendente.toFixed(2)}</div></Card>
+                <Card className="text-center bg-red-50 border-red-200"><div className="text-xs text-gray-400 mb-1">CANCELADO</div><div className="text-3xl font-black text-red-400">R$ {totalCancelado.toFixed(2)}</div></Card>
               </div>
-
               <Card>
                 <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-xs text-gray-400 border-b">
-                      <th className="text-left py-2">Data</th>
-                      <th className="text-left py-2">Usuário</th>
-                      <th className="text-left py-2">Plano</th>
-                      <th className="text-left py-2">Valor</th>
-                      <th className="text-left py-2">Método</th>
-                      <th className="text-left py-2">Status</th>
-                      <th className="text-left py-2">Ação</th>
+                  <thead><tr className="text-xs text-gray-400 border-b">
+                    <th className="text-left py-2">Data</th><th className="text-left py-2">Usuário</th>
+                    <th className="text-left py-2">Plano</th><th className="text-left py-2">Valor</th>
+                    <th className="text-left py-2">Método</th><th className="text-left py-2">Status</th>
+                  </tr></thead>
+                  <tbody>{MOCK_PAYMENTS.map(p => (
+                    <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
+                      <td className="py-2 text-gray-400">{p.data}</td>
+                      <td><div className="font-medium">{p.user}</div><div className="text-xs text-gray-400">{p.email}</div></td>
+                      <td>{p.plan}</td><td className="font-bold">R$ {p.valor.toFixed(2)}</td><td>{p.metodo}</td>
+                      <td><Badge color={p.status === "pago" ? "green" : p.status === "pendente" ? "yellow" : "red"}>{p.status}</Badge></td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {MOCK_PAYMENTS.map(p => (
-                      <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
-                        <td className="py-2 text-gray-400">{p.data}</td>
-                        <td>
-                          <div className="font-medium">{p.user}</div>
-                          <div className="text-xs text-gray-400">{p.email}</div>
-                        </td>
-                        <td>{p.plan}</td>
-                        <td className="font-bold">R$ {p.valor.toFixed(2)}</td>
-                        <td>{p.metodo}</td>
-                        <td>
-                          <Badge color={p.status === "pago" ? "green" : p.status === "pendente" ? "yellow" : "red"}>
-                            {p.status}
-                          </Badge>
-                        </td>
-                        <td>
-                          {p.status === "pendente" && <Button variant="success" className="text-xs py-1 px-2">Confirmar</Button>}
-                          {p.status === "pago" && <Button variant="secondary" className="text-xs py-1 px-2">Recibo</Button>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
+                  ))}</tbody>
                 </table>
               </Card>
             </>
           )}
 
           {/* CONFIGURAÇÕES */}
-          {tab === "Configurações" && (
-            <>
-              <h2 className="text-2xl font-black text-gray-900">Configurações do Sistema</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Card>
-                  <h3 className="font-bold text-gray-800 mb-4">💰 Planos e Preços</h3>
-                  <div className="space-y-3">
-                    <Input label="Preço Individual (R$/mês)" defaultValue="49.99" />
-                    <Input label="Preço por Acesso Empresarial (R$/mês)" defaultValue="49.99" />
-                    <Input label="Dias de Trial Gratuito" defaultValue="5" />
-                  </div>
-                  <Button className="mt-4">Salvar Preços</Button>
-                </Card>
-                <Card>
-                  <h3 className="font-bold text-gray-800 mb-4">🧮 Padrões de Cálculo</h3>
-                  <div className="space-y-3">
-                    <Input label="RAV Padrão (%)" defaultValue="7" />
-                    <Input label="FEE Padrão (BRL)" defaultValue="157.76" />
-                    <Input label="RAV Mínimo Reemissão (R$)" defaultValue="200" />
-                  </div>
-                  <Button className="mt-4">Salvar Padrões</Button>
-                </Card>
-                <Card>
-                  <h3 className="font-bold text-gray-800 mb-4">🔐 Conta Master</h3>
-                  <div className="space-y-3">
-                    <Input label="E-mail Master" defaultValue="geraldofor@gmail.com" disabled />
-                    <Input label="Nome" defaultValue="Geraldo" />
-                  </div>
-                  <Button className="mt-4">Atualizar</Button>
-                </Card>
-                <Card>
-                  <h3 className="font-bold text-gray-800 mb-4">💳 Pagamentos</h3>
-                  <div className="space-y-3">
-                    <Input label="Mercado Pago — Public Key" placeholder="APP_USR-..." />
-                    <Input label="Mercado Pago — Access Token" placeholder="APP_USR-..." />
-                  </div>
-                  <Button className="mt-4">Salvar Chaves</Button>
-                </Card>
-              </div>
-            </>
-          )}
+          {tab === "Configurações" && <ConfiguracoesSistema />}
 
           {/* FERRAMENTAS */}
           {tab === "Tarifas" && <ModuloTarifas />}
