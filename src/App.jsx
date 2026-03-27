@@ -1121,6 +1121,9 @@ function ConfiguracoesSistema() {
 }
 
 // ============================================================
+// PAINEL ADMIN
+// ============================================================
+function PainelAdmin({ onLogout }) {
   const [tab, setTab] = useState("Dashboard");
   const [users, setUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
