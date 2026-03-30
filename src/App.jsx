@@ -1543,287 +1543,6 @@ function PainelAdmin({ onLogout }) {
   );
 }
 
-  // Carrega usuários reais do Supabase
-  const carregarUsuarios = async () => {
-    setLoadingUsers(true);
-    const { data, error } = await supabase.from("profiles").select("*").order("created_at", { ascending: false });
-    if (!error && data) setUsers(data);
-    setLoadingUsers(false);
-  };
-
-  useEffect(() => { if (tab === "Usuários") carregarUsuarios(); }, [tab]);
-
-  // Bloquear/desbloquear usuário
-  const toggleBloquear = async (id, bloqueado) => {
-    await supabase.from("profiles").update({ blocked: !bloqueado }).eq("id", id);
-    carregarUsuarios();
-  };
-
-  // Criar novo usuário via convite
-  const criarUsuario = async () => {
-    setSavingUser(true);
-    setUserMsg("");
-    try {
-      const { error } = await supabase.auth.admin.inviteUserByEmail(novoUser.email, {
-        data: { full_name: novoUser.name, company: novoUser.company, seats: novoUser.seats }
-      });
-      if (error) {
-        // Fallback: cria direto na tabela profiles com signUp
-        const { error: signUpError } = await supabase.auth.signUp({
-          email: novoUser.email,
-          password: Math.random().toString(36).slice(-10) + "A1!",
-          options: { data: { full_name: novoUser.name } }
-        });
-        if (signUpError) { setUserMsg("Erro: " + signUpError.message); setSavingUser(false); return; }
-      }
-      setUserMsg("✅ Convite enviado para " + novoUser.email);
-      setNovoUser({ name: "", email: "", plan: "trial", company: "", seats: 1 });
-      setTimeout(() => { setShowModal(false); setUserMsg(""); carregarUsuarios(); }, 2000);
-    } catch (e) {
-      setUserMsg("Erro inesperado.");
-    }
-    setSavingUser(false);
-  };
-
-  // Dados mock para dashboard financeiro (será substituído por dados reais)
-  const totalReceita = MOCK_PAYMENTS.filter(p => p.status === "pago").reduce((a, p) => a + p.valor, 0);
-  const totalPendente = MOCK_PAYMENTS.filter(p => p.status === "pendente").reduce((a, p) => a + p.valor, 0);
-  const totalCancelado = MOCK_PAYMENTS.filter(p => p.status === "cancelado").reduce((a, p) => a + p.valor, 0);
-  const totalUsuarios = users.filter(u => u.role !== "admin").length;
-  const ativos = users.filter(u => u.plan === "individual" || u.plan === "empresarial" || u.plan === "admin").length;
-  const trials = users.filter(u => u.plan === "trial").length;
-
-  const trialDaysLeft = (trialStart) => {
-    if (!trialStart) return 0;
-    const diff = (new Date() - new Date(trialStart)) / (1000 * 60 * 60 * 24);
-    return Math.max(0, 5 - Math.floor(diff));
-  };
-
-  const menus = [
-    { id: "Dashboard", icon: "📊", grupo: "admin" },
-    { id: "Usuários", icon: "👥", grupo: "admin" },
-    { id: "Pagamentos", icon: "💰", grupo: "admin" },
-    { id: "Configurações", icon: "⚙️", grupo: "admin" },
-    { id: "Tarifas", icon: "🧮", grupo: "ferramentas" },
-    { id: "Conversor", icon: "✈️", grupo: "ferramentas" },
-    { id: "Reemissão", icon: "🔄", grupo: "ferramentas" },
-  ];
-
-  return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Modal Novo Usuário */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md">
-            <h3 className="font-black text-lg text-gray-900 mb-4">➕ Novo Usuário</h3>
-            <div className="space-y-3">
-              <Input label="Nome completo" value={novoUser.name} onChange={e => setNovoUser({...novoUser, name: e.target.value})} placeholder="Nome do usuário" />
-              <Input label="E-mail" type="email" value={novoUser.email} onChange={e => setNovoUser({...novoUser, email: e.target.value})} placeholder="email@exemplo.com" />
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Plano</label>
-                <select value={novoUser.plan} onChange={e => setNovoUser({...novoUser, plan: e.target.value})}
-                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option value="trial">Trial (5 dias)</option>
-                  <option value="individual">Individual</option>
-                  <option value="empresarial">Empresarial</option>
-                </select>
-              </div>
-              {novoUser.plan === "empresarial" && (
-                <div className="flex gap-3">
-                  <Input label="Empresa" value={novoUser.company} onChange={e => setNovoUser({...novoUser, company: e.target.value})} placeholder="Nome da empresa" />
-                  <Input label="Acessos" type="number" min="1" value={novoUser.seats} onChange={e => setNovoUser({...novoUser, seats: parseInt(e.target.value)})} />
-                </div>
-              )}
-              {userMsg && <div className={`text-sm p-3 rounded-lg ${userMsg.startsWith("✅") ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>{userMsg}</div>}
-            </div>
-            <div className="flex gap-3 mt-5">
-              <Button onClick={criarUsuario} disabled={savingUser || !novoUser.email}>
-                {savingUser ? "Enviando..." : "📧 Enviar Convite"}
-              </Button>
-              <Button variant="secondary" onClick={() => { setShowModal(false); setUserMsg(""); }}>Cancelar</Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Header Admin */}
-      <header className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between border-b border-slate-700">
-        <div className="flex items-center gap-4">
-          <span className="text-xl font-black">⚡ Calcula Fácil</span>
-          <span className="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">ADMIN MASTER</span>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="text-slate-300 text-sm">● Geraldo — geraldofor@gmail.com</span>
-          <button onClick={onLogout} className="text-xs bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg transition-all">Sair</button>
-        </div>
-      </header>
-
-      <div className="flex">
-        {/* Sidebar */}
-        <aside className="w-56 bg-white border-r border-gray-200 min-h-[calc(100vh-60px)] p-4">
-          <div className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3 px-3">Administração</div>
-          {menus.filter(m => m.grupo === "admin").map(m => (
-            <button key={m.id} onClick={() => setTab(m.id)}
-              className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium mb-1 transition-all flex items-center gap-2
-                ${tab === m.id ? "bg-blue-600 text-white shadow" : "text-gray-600 hover:bg-gray-100"}`}>
-              <span>{m.icon}</span>{m.id}
-            </button>
-          ))}
-          <div className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3 px-3 mt-5">Ferramentas</div>
-          {menus.filter(m => m.grupo === "ferramentas").map(m => (
-            <button key={m.id} onClick={() => setTab(m.id)}
-              className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium mb-1 transition-all flex items-center gap-2
-                ${tab === m.id ? "bg-green-600 text-white shadow" : "text-gray-600 hover:bg-gray-100"}`}>
-              <span>{m.icon}</span>{m.id}
-            </button>
-          ))}
-          <div className="mt-6 bg-purple-50 border border-purple-200 rounded-xl p-3 text-xs text-purple-700">
-            <div className="font-bold mb-1">🔐 Acesso Full</div>
-            <div className="text-purple-500">geraldofor@gmail.com</div>
-          </div>
-        </aside>
-
-        <main className="flex-1 p-6 space-y-6">
-
-          {/* DASHBOARD */}
-          {tab === "Dashboard" && (
-            <>
-              <h2 className="text-2xl font-black text-gray-900">Dashboard</h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {[
-                  { label: "Receita Mensal", valor: `R$ ${totalReceita.toFixed(2)}`, cor: "text-green-600", bg: "bg-green-50 border-green-200", icon: "💰" },
-                  { label: "Total Usuários", valor: totalUsuarios, cor: "text-blue-600", bg: "bg-blue-50 border-blue-200", icon: "👥" },
-                  { label: "Assinantes Ativos", valor: ativos, cor: "text-green-600", bg: "bg-green-50 border-green-200", icon: "✅" },
-                  { label: "Em Trial", valor: trials, cor: "text-yellow-600", bg: "bg-yellow-50 border-yellow-200", icon: "⏳" },
-                ].map(m => (
-                  <div key={m.label} className={`rounded-2xl border p-5 ${m.bg}`}>
-                    <div className="text-2xl mb-1">{m.icon}</div>
-                    <div className={`text-3xl font-black ${m.cor}`}>{m.valor}</div>
-                    <div className="text-xs text-gray-500 mt-1">{m.label}</div>
-                  </div>
-                ))}
-              </div>
-              <div className="grid grid-cols-3 gap-4">
-                <Card className="text-center"><div className="text-xs text-gray-400 mb-1">RECEBIDO</div><div className="text-2xl font-black text-green-600">R$ {totalReceita.toFixed(2)}</div></Card>
-                <Card className="text-center"><div className="text-xs text-gray-400 mb-1">PENDENTE</div><div className="text-2xl font-black text-yellow-500">R$ {totalPendente.toFixed(2)}</div></Card>
-                <Card className="text-center"><div className="text-xs text-gray-400 mb-1">CANCELADO</div><div className="text-2xl font-black text-red-400">R$ {totalCancelado.toFixed(2)}</div></Card>
-              </div>
-              <Card>
-                <h3 className="font-bold text-gray-800 mb-4">📋 Últimos Pagamentos</h3>
-                <table className="w-full text-sm">
-                  <thead><tr className="text-xs text-gray-400 border-b pb-2">
-                    <th className="text-left py-2">Usuário</th><th className="text-left py-2">Plano</th>
-                    <th className="text-left py-2">Valor</th><th className="text-left py-2">Método</th>
-                    <th className="text-left py-2">Data</th><th className="text-left py-2">Status</th>
-                  </tr></thead>
-                  <tbody>{MOCK_PAYMENTS.map(p => (
-                    <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50 transition-all">
-                      <td className="py-2"><div className="font-medium">{p.user}</div><div className="text-xs text-gray-400">{p.email}</div></td>
-                      <td>{p.plan}</td><td className="font-bold text-gray-800">R$ {p.valor.toFixed(2)}</td>
-                      <td className="text-gray-500">{p.metodo}</td><td className="text-gray-400">{p.data}</td>
-                      <td><Badge color={p.status === "pago" ? "green" : p.status === "pendente" ? "yellow" : "red"}>{p.status}</Badge></td>
-                    </tr>
-                  ))}</tbody>
-                </table>
-              </Card>
-            </>
-          )}
-
-          {/* USUÁRIOS */}
-          {tab === "Usuários" && (
-            <>
-              <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-black text-gray-900">Gestão de Usuários</h2>
-                <Button onClick={() => setShowModal(true)}>+ Novo Usuário</Button>
-              </div>
-              <div className="grid grid-cols-3 gap-4">
-                <Card className="text-center"><div className="text-2xl font-black text-blue-600">{users.length}</div><div className="text-xs text-gray-500">Total</div></Card>
-                <Card className="text-center"><div className="text-2xl font-black text-green-600">{ativos}</div><div className="text-xs text-gray-500">Ativos</div></Card>
-                <Card className="text-center"><div className="text-2xl font-black text-yellow-500">{trials}</div><div className="text-xs text-gray-500">Em Trial</div></Card>
-              </div>
-              <Card>
-                {loadingUsers ? (
-                  <div className="text-center text-gray-400 py-8">Carregando usuários...</div>
-                ) : (
-                  <table className="w-full text-sm">
-                    <thead><tr className="text-xs text-gray-400 border-b">
-                      <th className="text-left py-2">Usuário</th><th className="text-left py-2">Plano</th>
-                      <th className="text-left py-2">Status</th><th className="text-left py-2">Empresa</th>
-                      <th className="text-left py-2">Cadastro</th><th className="text-left py-2">Ações</th>
-                    </tr></thead>
-                    <tbody>{users.map(u => (
-                      <tr key={u.id} className="border-b border-gray-50 hover:bg-gray-50 transition-all">
-                        <td className="py-2"><div className="font-medium">{u.full_name || "—"}</div><div className="text-xs text-gray-400">{u.email}</div></td>
-                        <td><Badge color={u.role === "admin" ? "purple" : u.plan === "individual" ? "blue" : u.plan === "empresarial" ? "green" : "yellow"}>{u.plan}</Badge></td>
-                        <td>
-                          {u.blocked ? <Badge color="red">Bloqueado</Badge>
-                          : u.plan === "trial" ? <Badge color="yellow">Trial ({trialDaysLeft(u.trial_start)}d)</Badge>
-                          : <Badge color="green">Ativo</Badge>}
-                        </td>
-                        <td className="text-gray-500">{u.company || "—"}</td>
-                        <td className="text-gray-400">{new Date(u.created_at).toLocaleDateString("pt-BR")}</td>
-                        <td>
-                          {u.role !== "admin" && (
-                            <div className="flex gap-2">
-                              <Button variant={u.blocked ? "success" : "danger"} className="text-xs py-1 px-2"
-                                onClick={() => toggleBloquear(u.id, u.blocked)}>
-                                {u.blocked ? "Desbloquear" : "Bloquear"}
-                              </Button>
-                            </div>
-                          )}
-                          {u.role === "admin" && <Badge color="purple">MASTER</Badge>}
-                        </td>
-                      </tr>
-                    ))}</tbody>
-                  </table>
-                )}
-              </Card>
-            </>
-          )}
-
-          {/* PAGAMENTOS */}
-          {tab === "Pagamentos" && (
-            <>
-              <h2 className="text-2xl font-black text-gray-900">Controle Financeiro</h2>
-              <div className="grid grid-cols-3 gap-4">
-                <Card className="text-center bg-green-50 border-green-200"><div className="text-xs text-gray-400 mb-1">RECEBIDO</div><div className="text-3xl font-black text-green-600">R$ {totalReceita.toFixed(2)}</div></Card>
-                <Card className="text-center bg-yellow-50 border-yellow-200"><div className="text-xs text-gray-400 mb-1">PENDENTE</div><div className="text-3xl font-black text-yellow-500">R$ {totalPendente.toFixed(2)}</div></Card>
-                <Card className="text-center bg-red-50 border-red-200"><div className="text-xs text-gray-400 mb-1">CANCELADO</div><div className="text-3xl font-black text-red-400">R$ {totalCancelado.toFixed(2)}</div></Card>
-              </div>
-              <Card>
-                <table className="w-full text-sm">
-                  <thead><tr className="text-xs text-gray-400 border-b">
-                    <th className="text-left py-2">Data</th><th className="text-left py-2">Usuário</th>
-                    <th className="text-left py-2">Plano</th><th className="text-left py-2">Valor</th>
-                    <th className="text-left py-2">Método</th><th className="text-left py-2">Status</th>
-                  </tr></thead>
-                  <tbody>{MOCK_PAYMENTS.map(p => (
-                    <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
-                      <td className="py-2 text-gray-400">{p.data}</td>
-                      <td><div className="font-medium">{p.user}</div><div className="text-xs text-gray-400">{p.email}</div></td>
-                      <td>{p.plan}</td><td className="font-bold">R$ {p.valor.toFixed(2)}</td><td>{p.metodo}</td>
-                      <td><Badge color={p.status === "pago" ? "green" : p.status === "pendente" ? "yellow" : "red"}>{p.status}</Badge></td>
-                    </tr>
-                  ))}</tbody>
-                </table>
-              </Card>
-            </>
-          )}
-
-          {/* CONFIGURAÇÕES */}
-          {tab === "Configurações" && <ConfiguracoesSistema />}
-
-          {/* FERRAMENTAS */}
-          {tab === "Tarifas" && <ModuloTarifas />}
-          {tab === "Conversor" && <ModuloConversor />}
-          {tab === "Reemissão" && <ModuloReemissao />}
-
-        </main>
-      </div>
-    </div>
-  );
-}
-
 // ============================================================
 // DASHBOARD USUÁRIO
 // ============================================================
@@ -1833,13 +1552,13 @@ function Dashboard({ user, onLogout, onGoAdmin }) {
   const isAdmin = user.email && user.email.toLowerCase() === ADMIN_EMAIL;
   const isTrial = user.plan === "trial";
   const trialDaysLeft = user.trialDays || 5;
+  const ZAP = "5585812059005";
 
   const menus = ["Tarifas", "Conversor", "Reemissão"];
   if (isCompanyAdmin) menus.push("Equipe");
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <header className="bg-slate-900 text-white px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className="text-lg font-black">⚡ Calcula Fácil</span>
@@ -1857,7 +1576,6 @@ function Dashboard({ user, onLogout, onGoAdmin }) {
       </header>
 
       <div className="flex">
-        {/* Sidebar */}
         <aside className="w-48 bg-white border-r border-gray-100 min-h-[calc(100vh-52px)] p-4">
           {menus.map(m => (
             <button key={m} onClick={() => setModulo(m)}
@@ -1879,12 +1597,14 @@ function Dashboard({ user, onLogout, onGoAdmin }) {
             <div className="mt-6 bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700">
               <div className="font-bold mb-1">Gostando? 🚀</div>
               <div className="mb-2">Assine por R$ 49,99/mês</div>
-              <button className="w-full py-1.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-all">Assinar agora</button>
+              <a href={`https://wa.me/${ZAP}`} target="_blank" rel="noopener noreferrer"
+                className="block w-full py-1.5 bg-green-500 text-white rounded-lg font-semibold hover:bg-green-600 transition-all text-center">
+                📲 Falar com suporte
+              </a>
             </div>
           )}
         </aside>
 
-        {/* Conteúdo */}
         <main className="flex-1 p-6">
           {modulo === "Tarifas" && <ModuloTarifas />}
           {modulo === "Conversor" && <ModuloConversor />}
@@ -1895,14 +1615,19 @@ function Dashboard({ user, onLogout, onGoAdmin }) {
               <Card>
                 <div className="flex justify-between items-center mb-4">
                   <div><span className="font-bold">{user.company}</span> — <span className="text-gray-500">{user.seats || 1} acesso(s) contratado(s)</span></div>
-                  <Button>+ Adicionar usuário</Button>
                 </div>
-                <div className="text-sm text-gray-500">Gerencie os acessos da sua equipe aqui. Cada usuário adicional custa R$ 49,99/mês.</div>
+                <div className="text-sm text-gray-500">Para adicionar usuários entre em contato via WhatsApp.</div>
               </Card>
             </div>
           )}
         </main>
       </div>
+
+      {/* Botão WhatsApp flutuante */}
+      <a href={`https://wa.me/${ZAP}`} target="_blank" rel="noopener noreferrer"
+        className="fixed bottom-6 right-6 w-14 h-14 bg-green-500 hover:bg-green-400 rounded-full flex items-center justify-center shadow-lg shadow-green-500/40 transition-all z-50 text-2xl">
+        📲
+      </a>
     </div>
   );
 }
@@ -1915,21 +1640,14 @@ export default function App() {
   const [user, setUser] = useState(null);
 
   useEffect(() => {
-    // Verifica se há sessão ativa
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", session.user.id)
-          .single();
-
+        const { data: profile } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
         let trialDaysLeft = 0;
         if (profile?.plan === "trial" && profile?.trial_start) {
-          const diff = (new Date() - new Date(profile.trial_start)) / (1000 * 60 * 60 * 24);
+          const diff = (new Date() - new Date(profile.trial_start)) / (1000*60*60*24);
           trialDaysLeft = Math.max(0, 5 - Math.floor(diff));
         }
-
         const userData = {
           id: session.user.id,
           name: profile?.full_name || session.user.email.split("@")[0],
@@ -1947,7 +1665,6 @@ export default function App() {
       }
     });
 
-    // Escuta mudanças de autenticação
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session) { setUser(null); setScreen("login"); }
     });
