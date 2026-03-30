@@ -1143,11 +1143,405 @@ function ConfiguracoesSistema() {
 function PainelAdmin({ onLogout }) {
   const [tab, setTab] = useState("Dashboard");
   const [users, setUsers] = useState([]);
+  const [pagamentos, setPagamentos] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [showModal, setShowModal] = useState(false);
-  const [novoUser, setNovoUser] = useState({ name: "", email: "", plan: "trial", company: "", seats: 1 });
+  const [showAcaoModal, setShowAcaoModal] = useState(false);
+  const [userSelecionado, setUserSelecionado] = useState(null);
+  const [novoUser, setNovoUser] = useState({ name: "", email: "", plan: "trial", trialDays: 5, company: "", seats: 1 });
   const [savingUser, setSavingUser] = useState(false);
   const [userMsg, setUserMsg] = useState("");
+  const [pagForm, setPagForm] = useState({ valor: "49.99", metodo: "PIX", obs: "" });
+  const ZAP = "5585812059005";
+
+  const carregarUsuarios = async () => {
+    setLoadingUsers(true);
+    const { data } = await supabase.from("profiles").select("*").order("created_at", { ascending: false });
+    if (data) setUsers(data);
+    setLoadingUsers(false);
+  };
+
+  const carregarPagamentos = async () => {
+    const { data } = await supabase.from("pagamentos").select("*, profiles(full_name, email)").order("created_at", { ascending: false });
+    if (data) setPagamentos(data);
+  };
+
+  useEffect(() => {
+    if (tab === "Usuários") carregarUsuarios();
+    if (tab === "Pagamentos" || tab === "Dashboard") { carregarUsuarios(); carregarPagamentos(); }
+  }, [tab]);
+
+  // Ações de usuário
+  const atualizarStatus = async (id, campos) => {
+    await supabase.from("profiles").update(campos).eq("id", id);
+    carregarUsuarios();
+    setShowAcaoModal(false);
+  };
+
+  const ativarPlano = (u) => atualizarStatus(u.id, { plan: "individual", blocked: false, paid_until: new Date(Date.now() + 30*24*60*60*1000).toISOString() });
+  const bloquear = (u) => atualizarStatus(u.id, { blocked: true });
+  const desbloquear = (u) => atualizarStatus(u.id, { blocked: false });
+  const cancelarAcesso = (u) => atualizarStatus(u.id, { plan: "cancelado", blocked: true });
+  const estenderTrial = async (u, dias) => {
+    const novaData = new Date(new Date(u.trial_start).getTime() + (5 + dias) * 24*60*60*1000);
+    await atualizarStatus(u.id, { trial_start: new Date(Date.now() - (dias-1)*24*60*60*1000).toISOString() });
+  };
+
+  const registrarPagamento = async (u) => {
+    await supabase.from("pagamentos").insert({
+      user_id: u.id, valor: parseFloat(pagForm.valor),
+      metodo: pagForm.metodo, obs: pagForm.obs, status: "pago",
+    });
+    await ativarPlano(u);
+    carregarPagamentos();
+    setShowAcaoModal(false);
+  };
+
+  const enviarRecibo = (u) => {
+    const msg = encodeURIComponent(`✅ *Recibo Calcula Fácil*\n\nOlá ${u.full_name}!\n\nSeu pagamento foi confirmado.\n\n📋 Plano: Individual\n💰 Valor: R$ ${pagForm.valor}\n💳 Método: ${pagForm.metodo}\n📅 Vigência: 30 dias\n\nObrigado! ⚡`);
+    window.open(`https://wa.me/${ZAP}?text=${msg}`, "_blank");
+  };
+
+  const criarUsuario = async () => {
+    setSavingUser(true); setUserMsg("");
+    try {
+      const { error } = await supabase.auth.signUp({
+        email: novoUser.email,
+        password: Math.random().toString(36).slice(-10) + "A1!",
+        options: { data: { full_name: novoUser.name } }
+      });
+      if (error) { setUserMsg("Erro: " + error.message); setSavingUser(false); return; }
+      setUserMsg("✅ Usuário criado! Oriente a redefinir a senha.");
+      setTimeout(() => { setShowModal(false); setUserMsg(""); carregarUsuarios(); }, 2500);
+    } catch (e) { setUserMsg("Erro inesperado."); }
+    setSavingUser(false);
+  };
+
+  const trialDaysLeft = (u) => {
+    if (!u.trial_start) return 0;
+    const diff = (new Date() - new Date(u.trial_start)) / (1000*60*60*24);
+    return Math.max(0, 5 - Math.floor(diff));
+  };
+
+  const getStatus = (u) => {
+    if (u.plan === "cancelado") return { label: "Cancelado", color: "gray" };
+    if (u.blocked) return { label: "Bloqueado", color: "red" };
+    if (u.plan === "trial") return { label: `Trial (${trialDaysLeft(u)}d)`, color: trialDaysLeft(u) <= 1 ? "red" : "yellow" };
+    if (u.plan === "individual" || u.plan === "empresarial") return { label: "Ativo", color: "green" };
+    if (u.plan === "admin") return { label: "Admin", color: "purple" };
+    return { label: u.plan, color: "gray" };
+  };
+
+  const totalReceita = pagamentos.filter(p => p.status === "pago").reduce((a, p) => a + (p.valor || 0), 0);
+  const totalUsuarios = users.filter(u => u.role !== "admin").length;
+  const ativos = users.filter(u => (u.plan === "individual" || u.plan === "empresarial") && !u.blocked).length;
+  const trials = users.filter(u => u.plan === "trial" && !u.blocked).length;
+  const bloqueados = users.filter(u => u.blocked).length;
+  const vencendoHoje = users.filter(u => u.plan === "trial" && trialDaysLeft(u) <= 1 && !u.blocked).length;
+
+  const menus = [
+    { id: "Dashboard", icon: "📊", grupo: "admin" },
+    { id: "Usuários", icon: "👥", grupo: "admin" },
+    { id: "Pagamentos", icon: "💰", grupo: "admin" },
+    { id: "Configurações", icon: "⚙️", grupo: "admin" },
+    { id: "Tarifas", icon: "🧮", grupo: "ferramentas" },
+    { id: "Conversor", icon: "✈️", grupo: "ferramentas" },
+    { id: "Reemissão", icon: "🔄", grupo: "ferramentas" },
+  ];
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+
+      {/* MODAL NOVO USUÁRIO */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md">
+            <h3 className="font-black text-lg text-gray-900 mb-4">➕ Novo Usuário</h3>
+            <div className="space-y-3">
+              <Input label="Nome completo" value={novoUser.name} onChange={e => setNovoUser({...novoUser, name: e.target.value})} placeholder="Nome do usuário" />
+              <Input label="E-mail" type="email" value={novoUser.email} onChange={e => setNovoUser({...novoUser, email: e.target.value})} placeholder="email@exemplo.com" />
+              <div className="flex gap-3">
+                <div className="flex flex-col gap-1 flex-1">
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Plano inicial</label>
+                  <select value={novoUser.plan} onChange={e => setNovoUser({...novoUser, plan: e.target.value})}
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="trial">Trial</option>
+                    <option value="individual">Individual (pago)</option>
+                    <option value="empresarial">Empresarial</option>
+                  </select>
+                </div>
+                {novoUser.plan === "trial" && (
+                  <Input label="Dias trial" type="number" min="1" max="30" value={novoUser.trialDays} onChange={e => setNovoUser({...novoUser, trialDays: e.target.value})} />
+                )}
+              </div>
+              {userMsg && <div className={`text-sm p-3 rounded-lg ${userMsg.startsWith("✅") ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>{userMsg}</div>}
+            </div>
+            <div className="flex gap-3 mt-5">
+              <Button onClick={criarUsuario} disabled={savingUser || !novoUser.email || !novoUser.name}>
+                {savingUser ? "Criando..." : "✅ Criar Usuário"}
+              </Button>
+              <Button variant="secondary" onClick={() => { setShowModal(false); setUserMsg(""); }}>Cancelar</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL AÇÕES DO USUÁRIO */}
+      {showAcaoModal && userSelecionado && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-lg">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-black text-lg text-gray-900">⚙️ Gerenciar Usuário</h3>
+              <button onClick={() => setShowAcaoModal(false)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+            </div>
+
+            <div className="bg-gray-50 rounded-xl p-3 mb-4">
+              <div className="font-bold text-gray-800">{userSelecionado.full_name}</div>
+              <div className="text-sm text-gray-500">{userSelecionado.email}</div>
+              <div className="mt-1"><Badge color={getStatus(userSelecionado).color}>{getStatus(userSelecionado).label}</Badge></div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <Button variant="success" onClick={() => ativarPlano(userSelecionado)}>✅ Ativar Plano (30d)</Button>
+              <Button variant="secondary" onClick={() => estenderTrial(userSelecionado, 5)}>⏳ +5 dias Trial</Button>
+              {!userSelecionado.blocked
+                ? <Button variant="danger" onClick={() => bloquear(userSelecionado)}>🔴 Bloquear</Button>
+                : <Button variant="success" onClick={() => desbloquear(userSelecionado)}>🟢 Desbloquear</Button>
+              }
+              <Button variant="secondary" onClick={() => cancelarAcesso(userSelecionado)} className="text-gray-500">⚫ Cancelar Acesso</Button>
+            </div>
+
+            <div className="border-t border-gray-100 pt-4">
+              <div className="text-xs font-bold text-gray-500 uppercase mb-3">💰 Registrar Pagamento</div>
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <Input label="Valor (R$)" type="number" value={pagForm.valor} onChange={e => setPagForm({...pagForm, valor: e.target.value})} />
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Método</label>
+                  <select value={pagForm.metodo} onChange={e => setPagForm({...pagForm, metodo: e.target.value})}
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option>PIX</option>
+                    <option>Cartão</option>
+                    <option>Transferência</option>
+                    <option>Dinheiro</option>
+                  </select>
+                </div>
+              </div>
+              <Input label="Observação (opcional)" value={pagForm.obs} onChange={e => setPagForm({...pagForm, obs: e.target.value})} placeholder="Ex: Mensalidade março" />
+              <div className="flex gap-3 mt-3">
+                <Button variant="success" onClick={() => registrarPagamento(userSelecionado)}>💰 Confirmar Pagamento + Ativar</Button>
+                <Button variant="secondary" onClick={() => enviarRecibo(userSelecionado)}>📲 Enviar Recibo ZAP</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
+      <header className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between border-b border-slate-700">
+        <div className="flex items-center gap-4">
+          <span className="text-xl font-black">⚡ Calcula Fácil</span>
+          <span className="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">ADMIN MASTER</span>
+        </div>
+        <div className="flex items-center gap-4">
+          <span className="text-slate-300 text-sm">● Geraldo — geraldofor@gmail.com</span>
+          <button onClick={onLogout} className="text-xs bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg transition-all">Sair</button>
+        </div>
+      </header>
+
+      <div className="flex">
+        <aside className="w-56 bg-white border-r border-gray-200 min-h-[calc(100vh-60px)] p-4">
+          <div className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3 px-3">Administração</div>
+          {menus.filter(m => m.grupo === "admin").map(m => (
+            <button key={m.id} onClick={() => setTab(m.id)}
+              className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium mb-1 transition-all flex items-center gap-2
+                ${tab === m.id ? "bg-blue-600 text-white shadow" : "text-gray-600 hover:bg-gray-100"}`}>
+              <span>{m.icon}</span>{m.id}
+              {m.id === "Usuários" && vencendoHoje > 0 && (
+                <span className="ml-auto bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full">{vencendoHoje}</span>
+              )}
+            </button>
+          ))}
+          <div className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3 px-3 mt-5">Ferramentas</div>
+          {menus.filter(m => m.grupo === "ferramentas").map(m => (
+            <button key={m.id} onClick={() => setTab(m.id)}
+              className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium mb-1 transition-all flex items-center gap-2
+                ${tab === m.id ? "bg-green-600 text-white shadow" : "text-gray-600 hover:bg-gray-100"}`}>
+              <span>{m.icon}</span>{m.id}
+            </button>
+          ))}
+          <div className="mt-6 bg-purple-50 border border-purple-200 rounded-xl p-3 text-xs text-purple-700">
+            <div className="font-bold mb-1">🔐 Acesso Full</div>
+            <div className="text-purple-500">geraldofor@gmail.com</div>
+          </div>
+        </aside>
+
+        <main className="flex-1 p-6 space-y-6">
+
+          {/* DASHBOARD */}
+          {tab === "Dashboard" && (
+            <>
+              <h2 className="text-2xl font-black text-gray-900">Dashboard</h2>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {[
+                  { label: "Receita do Mês", valor: `R$ ${totalReceita.toFixed(2)}`, cor: "text-green-600", bg: "bg-green-50 border-green-200", icon: "💰" },
+                  { label: "Assinantes Ativos", valor: ativos, cor: "text-blue-600", bg: "bg-blue-50 border-blue-200", icon: "✅" },
+                  { label: "Em Trial", valor: trials, cor: "text-yellow-600", bg: "bg-yellow-50 border-yellow-200", icon: "⏳" },
+                  { label: "Bloqueados", valor: bloqueados, cor: "text-red-500", bg: "bg-red-50 border-red-200", icon: "🔴" },
+                ].map(m => (
+                  <div key={m.label} className={`rounded-2xl border p-5 ${m.bg}`}>
+                    <div className="text-2xl mb-1">{m.icon}</div>
+                    <div className={`text-3xl font-black ${m.cor}`}>{m.valor}</div>
+                    <div className="text-xs text-gray-500 mt-1">{m.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {vencendoHoje > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+                  <div className="font-bold text-red-700 mb-2">⚠️ Trials vencendo hoje ou vencidos ({vencendoHoje})</div>
+                  {users.filter(u => u.plan === "trial" && trialDaysLeft(u) <= 1 && !u.blocked).map(u => (
+                    <div key={u.id} className="flex items-center justify-between py-1 border-b border-red-100 last:border-0">
+                      <div><span className="font-medium">{u.full_name}</span> <span className="text-sm text-gray-500">{u.email}</span></div>
+                      <Button variant="success" className="text-xs py-1 px-2" onClick={() => { setUserSelecionado(u); setShowAcaoModal(true); }}>Gerenciar</Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <Card>
+                <h3 className="font-bold text-gray-800 mb-4">📋 Últimos Pagamentos</h3>
+                {pagamentos.length === 0 ? (
+                  <div className="text-center text-gray-400 py-6">Nenhum pagamento registrado ainda.</div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead><tr className="text-xs text-gray-400 border-b">
+                      <th className="text-left py-2">Usuário</th>
+                      <th className="text-left py-2">Valor</th>
+                      <th className="text-left py-2">Método</th>
+                      <th className="text-left py-2">Data</th>
+                      <th className="text-left py-2">Obs</th>
+                    </tr></thead>
+                    <tbody>{pagamentos.slice(0, 10).map(p => (
+                      <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
+                        <td className="py-2"><div className="font-medium">{p.profiles?.full_name || "—"}</div><div className="text-xs text-gray-400">{p.profiles?.email}</div></td>
+                        <td className="font-bold text-green-600">R$ {(p.valor || 0).toFixed(2)}</td>
+                        <td>{p.metodo}</td>
+                        <td className="text-gray-400">{new Date(p.created_at).toLocaleDateString("pt-BR")}</td>
+                        <td className="text-gray-500 text-xs">{p.obs || "—"}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                )}
+              </Card>
+            </>
+          )}
+
+          {/* USUÁRIOS */}
+          {tab === "Usuários" && (
+            <>
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-black text-gray-900">Gestão de Usuários</h2>
+                <Button onClick={() => setShowModal(true)}>+ Novo Usuário</Button>
+              </div>
+              <div className="grid grid-cols-4 gap-4">
+                <Card className="text-center"><div className="text-2xl font-black text-blue-600">{totalUsuarios}</div><div className="text-xs text-gray-500">Total</div></Card>
+                <Card className="text-center"><div className="text-2xl font-black text-green-600">{ativos}</div><div className="text-xs text-gray-500">Ativos</div></Card>
+                <Card className="text-center"><div className="text-2xl font-black text-yellow-500">{trials}</div><div className="text-xs text-gray-500">Em Trial</div></Card>
+                <Card className="text-center"><div className="text-2xl font-black text-red-500">{bloqueados}</div><div className="text-xs text-gray-500">Bloqueados</div></Card>
+              </div>
+              <Card>
+                {loadingUsers ? (
+                  <div className="text-center text-gray-400 py-8">Carregando usuários...</div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead><tr className="text-xs text-gray-400 border-b">
+                      <th className="text-left py-2">Usuário</th>
+                      <th className="text-left py-2">Plano</th>
+                      <th className="text-left py-2">Status</th>
+                      <th className="text-left py-2">Empresa</th>
+                      <th className="text-left py-2">Cadastro</th>
+                      <th className="text-left py-2">Ações</th>
+                    </tr></thead>
+                    <tbody>{users.map(u => {
+                      const st = getStatus(u);
+                      return (
+                        <tr key={u.id} className="border-b border-gray-50 hover:bg-gray-50 transition-all">
+                          <td className="py-2"><div className="font-medium">{u.full_name || "—"}</div><div className="text-xs text-gray-400">{u.email}</div></td>
+                          <td><Badge color={u.role === "admin" ? "purple" : u.plan === "individual" ? "blue" : u.plan === "empresarial" ? "green" : "yellow"}>{u.plan}</Badge></td>
+                          <td><Badge color={st.color}>{st.label}</Badge></td>
+                          <td className="text-gray-500">{u.company || "—"}</td>
+                          <td className="text-gray-400">{new Date(u.created_at).toLocaleDateString("pt-BR")}</td>
+                          <td>
+                            {u.role !== "admin" ? (
+                              <Button variant="secondary" className="text-xs py-1 px-3"
+                                onClick={() => { setUserSelecionado(u); setShowAcaoModal(true); }}>
+                                ⚙️ Gerenciar
+                              </Button>
+                            ) : <Badge color="purple">MASTER</Badge>}
+                          </td>
+                        </tr>
+                      );
+                    })}</tbody>
+                  </table>
+                )}
+              </Card>
+            </>
+          )}
+
+          {/* PAGAMENTOS */}
+          {tab === "Pagamentos" && (
+            <>
+              <h2 className="text-2xl font-black text-gray-900">Controle Financeiro</h2>
+              <div className="grid grid-cols-2 gap-4">
+                <Card className="text-center bg-green-50 border-green-200">
+                  <div className="text-xs text-gray-400 mb-1">RECEITA TOTAL</div>
+                  <div className="text-3xl font-black text-green-600">R$ {totalReceita.toFixed(2)}</div>
+                </Card>
+                <Card className="text-center bg-blue-50 border-blue-200">
+                  <div className="text-xs text-gray-400 mb-1">PAGAMENTOS REGISTRADOS</div>
+                  <div className="text-3xl font-black text-blue-600">{pagamentos.length}</div>
+                </Card>
+              </div>
+              <Card>
+                {pagamentos.length === 0 ? (
+                  <div className="text-center text-gray-400 py-8">Nenhum pagamento registrado ainda.<br/><span className="text-sm">Use "Gerenciar" em um usuário para registrar pagamentos.</span></div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead><tr className="text-xs text-gray-400 border-b">
+                      <th className="text-left py-2">Data</th>
+                      <th className="text-left py-2">Usuário</th>
+                      <th className="text-left py-2">Valor</th>
+                      <th className="text-left py-2">Método</th>
+                      <th className="text-left py-2">Observação</th>
+                    </tr></thead>
+                    <tbody>{pagamentos.map(p => (
+                      <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
+                        <td className="py-2 text-gray-400">{new Date(p.created_at).toLocaleDateString("pt-BR")}</td>
+                        <td><div className="font-medium">{p.profiles?.full_name || "—"}</div><div className="text-xs text-gray-400">{p.profiles?.email}</div></td>
+                        <td className="font-bold text-green-600">R$ {(p.valor || 0).toFixed(2)}</td>
+                        <td>{p.metodo}</td>
+                        <td className="text-gray-500">{p.obs || "—"}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                )}
+              </Card>
+            </>
+          )}
+
+          {/* CONFIGURAÇÕES */}
+          {tab === "Configurações" && <ConfiguracoesSistema />}
+
+          {/* FERRAMENTAS */}
+          {tab === "Tarifas" && <ModuloTarifas />}
+          {tab === "Conversor" && <ModuloConversor />}
+          {tab === "Reemissão" && <ModuloReemissao />}
+
+        </main>
+      </div>
+    </div>
+  );
+}
 
   // Carrega usuários reais do Supabase
   const carregarUsuarios = async () => {
