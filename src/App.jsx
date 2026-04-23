@@ -77,7 +77,7 @@ const Input = ({ label, ...props }) => (
 const Textarea = ({ label, ...props }) => (
   <div className="flex flex-col gap-1">
     {label && <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{label}</label>}
-    <textarea {...props} className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white font-mono resize-none" />
+    <textarea {...props} className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white font-mono resize-y" />
   </div>
 );
 
@@ -706,11 +706,15 @@ function ModuloReemissao() {
     const totalAddColBRL=extractVal(texto,/TOTAL\s+ADD\s+COLL\s+BRL\s+([\-\d,.]+)/i);
     const nonRefundableTax=extractVal(texto,/NON\s+REFUNDABLE\s+TAX\s+BRL\s+([\-\d,.]+)/i);
     let oldOriginal=oldBaseFareUSD,newOriginal=newBaseFareUSD,comMarkup=false;
+    // Guarda valores originais antes do markup
+    const oldBRLoriginal = oldBaseFareUSD * cotacao;
+    const newBRLoriginal = newBaseFareUSD * cotacao;
     if(form.aplicarMarkup&&parseFloat(form.markup)>0){
       const mp=parseFloat(form.markup)/100;
       oldBaseFareUSD=oldBaseFareUSD/(1-mp);
       newBaseFareUSD=newBaseFareUSD/(1-mp);
-      fareBalanceBRL=(newBaseFareUSD-oldBaseFareUSD)*cotacao;
+      // Recalcula fareBalance com markup independente do que veio no ET*
+      fareBalanceBRL=Math.max(0,(newBaseFareUSD-oldBaseFareUSD)*cotacao);
       comMarkup=true;
     }
     let baseCalcBRL=fareBalanceBRL;
@@ -968,13 +972,13 @@ function ModuloReemissaoManual() {
             <div className="flex flex-col gap-2">
               <div className="text-xs font-mono text-gray-500 uppercase tracking-widest">Novo valor — cole aqui</div>
               <textarea value={taNovo} onChange={e=>setTaNovo(e.target.value)} rows={8}
-                className="bg-gray-900 border border-gray-700 rounded-lg text-green-400 font-mono text-xs p-3 resize-none focus:outline-none focus:border-cyan-400"
+                className="bg-gray-900 border border-gray-700 rounded-lg text-green-400 font-mono text-xs p-3 resize-y focus:outline-none focus:border-cyan-400"
                 placeholder={"Cole aqui o bloco do novo valor\n(a partir da linha USD ...)"} />
             </div>
             <div className="flex flex-col gap-2">
               <div className="text-xs font-mono text-gray-500 uppercase tracking-widest">Bilhete de crédito — cole aqui</div>
               <textarea value={taCred} onChange={e=>setTaCred(e.target.value)} rows={8}
-                className="bg-gray-900 border border-gray-700 rounded-lg text-green-400 font-mono text-xs p-3 resize-none focus:outline-none focus:border-cyan-400"
+                className="bg-gray-900 border border-gray-700 rounded-lg text-green-400 font-mono text-xs p-3 resize-y focus:outline-none focus:border-cyan-400"
                 placeholder={"Cole aqui o bloco do bilhete de crédito\n(FARE R USD ... + Taxas PD01...)"} />
             </div>
           </div>
@@ -1272,7 +1276,7 @@ function PainelAdmin({ onLogout }) {
   const menus = [
     {id:"Dashboard",icon:"📊",grupo:"admin"},{id:"Usuários",icon:"👥",grupo:"admin"},
     {id:"Pagamentos",icon:"💰",grupo:"admin"},{id:"Configurações",icon:"⚙️",grupo:"admin"},
-    {id:"Tarifas",icon:"🧮",grupo:"ferramentas"},{id:"Conversor",icon:"✈️",grupo:"ferramentas"},{id:"Reemissão",icon:"🔄",grupo:"ferramentas"},{id:"Remarcação",icon:"🔁",grupo:"ferramentas"},
+    {id:"Tarifas",icon:"🧮",grupo:"ferramentas"},{id:"Conversor",icon:"✈️",grupo:"ferramentas"},{id:"Reemissão",icon:"🔄",grupo:"ferramentas"},{id:"Reemissão Manual",icon:"🔁",grupo:"ferramentas"},
   ];
 
   return (
@@ -1504,7 +1508,7 @@ function PainelAdmin({ onLogout }) {
           {tab==="Tarifas"&&<ModuloTarifas/>}
           {tab==="Conversor"&&<ModuloConversor/>}
           {tab==="Reemissão"&&<ModuloReemissao/>}
-          {tab==="Remarcação"&&<ModuloReemissaoManual/>}
+          {tab==="Reemissão Manual"&&<ModuloReemissaoManual/>}
         </main>
       </div>
     </div>
@@ -1521,7 +1525,7 @@ function Dashboard({ user, onLogout, onGoAdmin }) {
   const isTrial = user.plan === "trial";
   const isPendingPro = user.plan === "pending_pro";
   const trialDaysLeft = user.trialDays || 5;
-  const menus = ["Tarifas", "Conversor", "Reemissão", "Remarcação"];
+  const menus = ["Tarifas", "Conversor", "Reemissão", "Reemissão Manual"];
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -1553,7 +1557,7 @@ function Dashboard({ user, onLogout, onGoAdmin }) {
           {menus.map(m => (
             <button key={m} onClick={() => setModulo(m)}
               className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium mb-1 transition-all ${modulo===m?"bg-blue-600 text-white":"text-gray-600 hover:bg-gray-100"}`}>
-              {m==="Tarifas"&&"🧮 "}{m==="Conversor"&&"✈️ "}{m==="Reemissão"&&"🔄 "}{m==="Remarcação"&&"🔁 "}{m}
+              {m==="Tarifas"&&"🧮 "}{m==="Conversor"&&"✈️ "}{m==="Reemissão"&&"🔄 "}{m==="Reemissão Manual"&&"🔁 "}{m}
             </button>
           ))}
 
@@ -1591,7 +1595,7 @@ function Dashboard({ user, onLogout, onGoAdmin }) {
           {modulo==="Tarifas"&&<ModuloTarifas/>}
           {modulo==="Conversor"&&<ModuloConversor/>}
           {modulo==="Reemissão"&&<ModuloReemissao/>}
-          {modulo==="Remarcação"&&<ModuloReemissaoManual/>}
+          {modulo==="Reemissão Manual"&&<ModuloReemissaoManual/>}
         </main>
       </div>
     </div>
