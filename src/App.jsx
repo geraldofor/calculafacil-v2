@@ -671,9 +671,139 @@ function ModuloConversor() {
 }
 
 // ============================================================
-// MÓDULO: REEMISSÃO (MANUAL + COLAR MÁSCARA)
+// MÓDULO: REEMISSÃO (ET* — original)
 // ============================================================
 function ModuloReemissao() {
+  const [gds, setGds] = useState("AMADEUS");
+  const [et, setEt] = useState("");
+  const [result, setResult] = useState("Cole o resumo Amadeus (ET*) e clique em CALCULAR");
+  const [copied, setCopied] = useState(false);
+  const [form, setForm] = useState({
+    cotacao:"5.5410",feeUSD:"25.00",ravPercent:"7.00",ravMinimo:"200",
+    ticketOriginal:"",passageiro:"",passageiros:"",rota:"",roteiro:"",loc:"",
+    dataEmissao:new Date().toISOString().split("T")[0],
+    aplicarMarkup:false,markup:"10",
+  });
+  const upd = (k,v) => setForm(f => ({...f,[k]:v}));
+  const extractVal = (texto,pattern) => { const m=texto.match(pattern); if(!m||!m[1])return 0; const p=parseFloat(m[1].trim().replace(/,/g,"")); return isNaN(p)?0:p; };
+  const formatVal = (val) => { if(Math.abs(val)<0.01)return"0,00"; return val.toFixed(2).replace(".",","); };
+  const formatDateBR = (d) => { if(!d)return""; const[y,m,dia]=d.split("-"); return`${dia}/${m}/${y}`; };
+
+  const calcular = () => {
+    const texto=et.trim().toUpperCase();
+    if(!texto)return;
+    const cotacao=parseFloat(form.cotacao.replace(",","."));
+    const feeUSD=parseFloat(form.feeUSD.replace(",","."));
+    const ravPercent=parseFloat(form.ravPercent.replace(",","."))/100;
+    const ravMinimo=parseFloat(form.ravMinimo.replace(",","."));
+    let oldBaseFareUSD=extractVal(texto,/OLD\s+BASE\s+FARE\s+USD\s+([\-\d,.]+)/i);
+    let newBaseFareUSD=extractVal(texto,/NEW\s+BASE\s+FARE\s+USD\s+([\-\d,.]+)/i);
+    let fareBalanceBRL=extractVal(texto,/FARE\s+BALANCE\s+BRL\s+([\-\d,.]+)/i);
+    const taxBalanceBRL=extractVal(texto,/TAX\s+BALANCE\s+BRL\s+([\-\d,.]+)/i);
+    const residualValueBRL=extractVal(texto,/RESIDUAL\s+VALUE\s+BRL\s+([\-\d,.]+)/i);
+    const penaltyBRL=extractVal(texto,/PENALTY\s+BRL\s+([\-\d,.]+)/i);
+    const ticketDiffBRL=extractVal(texto,/TICKET\s+DIFFERENCE\s+BRL\s+([\-\d,.]+)/i);
+    const totalAddColBRL=extractVal(texto,/TOTAL\s+ADD\s+COLL\s+BRL\s+([\-\d,.]+)/i);
+    const nonRefundableTax=extractVal(texto,/NON\s+REFUNDABLE\s+TAX\s+BRL\s+([\-\d,.]+)/i);
+    let oldOriginal=oldBaseFareUSD,newOriginal=newBaseFareUSD,comMarkup=false;
+    if(form.aplicarMarkup&&parseFloat(form.markup)>0){
+      const mp=parseFloat(form.markup)/100;
+      oldBaseFareUSD=oldBaseFareUSD/(1-mp);
+      newBaseFareUSD=newBaseFareUSD/(1-mp);
+      fareBalanceBRL=(newBaseFareUSD-oldBaseFareUSD)*cotacao;
+      comMarkup=true;
+    }
+    let baseCalcBRL=fareBalanceBRL;
+    if(Math.abs(fareBalanceBRL)<0.01&&ticketDiffBRL>0)baseCalcBRL=ticketDiffBRL;
+    let difTaxas=taxBalanceBRL;
+    if(residualValueBRL<0)difTaxas=taxBalanceBRL+Math.abs(residualValueBRL);
+    let totalAddCollGDS=Math.abs(totalAddColBRL)>0.01?totalAddColBRL:ticketDiffBRL>0?ticketDiffBRL+penaltyBRL+Math.abs(residualValueBRL):taxBalanceBRL+penaltyBRL+Math.abs(residualValueBRL);
+    const feeBRL=feeUSD*cotacao;
+    let ravVal=0;
+    if(baseCalcBRL>0){ravVal=baseCalcBRL*ravPercent;if(ravVal<ravMinimo)ravVal=ravMinimo;}
+    const totalPorPax=baseCalcBRL+difTaxas+penaltyBRL+feeBRL+ravVal;
+    const totalAddCalc=baseCalcBRL+difTaxas+penaltyBRL;
+    const diffValid=Math.abs(totalAddCalc-totalAddCollGDS);
+    const pad=12;
+    let out=`       CÁLCULO DE REMARCAÇÃO - ADT\n       Data: ${formatDateBR(form.dataEmissao)}\n       Cotação USD: R$ ${cotacao.toFixed(4).replace(".",",")}\n       FEE: U$ ${feeUSD.toFixed(2).replace(".",",")}\n`;
+    if(comMarkup){out+=`       MARKUP: ${form.markup}% aplicado\n       OLD FARE: USD ${oldOriginal.toFixed(2)} → USD ${oldBaseFareUSD.toFixed(2)}\n       NEW FARE: USD ${newOriginal.toFixed(2)} → USD ${newBaseFareUSD.toFixed(2)}\n`;}
+    out+=`       ---------------------------------------\n\n`;
+    if(form.passageiros.trim()){const paxLines=form.passageiros.trim().split("\n");out+=`PASSAGEIRO:  ${paxLines[0]}\n`;paxLines.slice(1).forEach(l=>out+=`             ${l}\n`);out+="\n";}
+    else if(form.passageiro)out+=`PASSAGEIRO: ${form.passageiro}\n\n`;
+    if(form.roteiro.trim()){const rotLines=form.roteiro.trim().split("\n");out+=`ROTA:   ${rotLines[0]}\n`;rotLines.slice(1).forEach(l=>out+=`        ${l}\n`);out+="\n";}
+    else if(form.rota)out+=`ROTA: ${form.rota}\n\n`;
+    if(form.loc)out+=`LOC.: ${form.loc}\n`;
+    if(form.ticketOriginal)out+=`TICKET ORIGINAL: ${form.ticketOriginal}\n`;
+    out+=`----------------------------------------\n\nDiferença de tarifa (R$)     R$ ${formatVal(baseCalcBRL).padStart(pad)}\nDiferença de taxas           R$ ${formatVal(difTaxas).padStart(pad)}\nMulta                        R$ ${formatVal(penaltyBRL).padStart(pad)}\nFEE                          R$ ${formatVal(feeBRL).padStart(pad)}\n`;
+    if(ravVal>0)out+=`RAV - ${(ravPercent*100).toFixed(0)}%                     R$ ${formatVal(ravVal).padStart(pad)}\n`;
+    out+=`----------------------------------------\nTOTAL POR PAX                R$ ${formatVal(totalPorPax).padStart(pad)}\n========================================\n***VALORES POR PAX SUJEITOS A ALTERAÇÃO***\n\nCONFERÊNCIA GDS:\nTICKET DIFFERENCE            R$ ${formatVal(ticketDiffBRL).padStart(pad)}\nPENALTY                      R$ ${formatVal(penaltyBRL).padStart(pad)}\n`;
+    if(residualValueBRL<0){out+=`RESIDUAL (abs)               R$ ${formatVal(Math.abs(residualValueBRL)).padStart(pad)}\n----------------------------------------\nTOTAL ADD COLL (GDS)         R$ ${formatVal(totalAddCollGDS).padStart(pad)}\n`;out+=diffValid<0.01?`✅ VALIDAÇÃO: BATE COM O GDS\n`:`⚠️  DIFERENÇA: R$ ${formatVal(diffValid)}\n`;}
+    out+=`========================================\n`;
+    if(residualValueBRL<0)out+=`* Taxas incluem compensação de residual negativo\n`;
+    if(nonRefundableTax>0)out+=`* Non Refundable Tax (R$ ${formatVal(nonRefundableTax)}) não entra no cálculo\n`;
+    out+=`Total Add Collect (GDS):     R$ ${formatVal(totalAddCollGDS).padStart(10)}\n***VALORES POR PAX SUJEITOS A ALTERAÇÃO***\n* Emissão: ${formatDateBR(form.dataEmissao)}`;
+    setResult(out);
+  };
+
+  const copiar = () => { navigator.clipboard.writeText(result); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+  const limpar = () => { setEt(""); setForm(f=>({...f,ticketOriginal:"",passageiro:"",passageiros:"",rota:"",roteiro:"",loc:"",aplicarMarkup:false})); setResult("Cole o resumo Amadeus (ET*) e clique em CALCULAR"); };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-black text-gray-900">Comparação de Bilhetes — Reemissão</h2>
+        <Tab tabs={["AMADEUS","GALILEO (OCR)","SABRE"]} active={gds} onChange={setGds} />
+      </div>
+      <Card>
+        <Textarea label="Resumo ET* — Cole aqui" value={et} onChange={e=>setEt(e.target.value)} rows={7}
+          placeholder={"Cole o conteúdo do resumo ET* aqui...\n\nExemplo:\nOLD BASE FARE       USD       795.00\nNEW BASE FARE       USD       795.00\nFARE BALANCE        BRL         0.00\nTAX BALANCE         BRL        24.00\nPENALTY             BRL       200.00\nTICKET DIFFERENCE   BRL       224.00\nTOTAL ADD COLL      BRL       224.00"} />
+      </Card>
+      <Card>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Input label="Cotação do Dólar (R$)" type="number" step="0.0001" value={form.cotacao} onChange={e=>upd("cotacao",e.target.value)} />
+          <Input label="FEE (USD)" type="number" step="0.01" value={form.feeUSD} onChange={e=>upd("feeUSD",e.target.value)} />
+          <Input label="% RAV" type="number" step="0.01" value={form.ravPercent} onChange={e=>upd("ravPercent",e.target.value)} />
+          <Input label="RAV Mínimo (R$)" type="number" value={form.ravMinimo} onChange={e=>upd("ravMinimo",e.target.value)} />
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+          <Input label="Ticket Original" value={form.ticketOriginal} onChange={e=>upd("ticketOriginal",e.target.value)} placeholder="Número do bilhete" />
+          <Input label="Passageiro (simples)" value={form.passageiro} onChange={e=>upd("passageiro",e.target.value)} placeholder="Nome completo" />
+          <Input label="Rota (simples)" value={form.rota} onChange={e=>upd("rota",e.target.value)} placeholder="Ex: GRU-MIA-JFK" />
+          <Input label="Data" type="date" value={form.dataEmissao} onChange={e=>upd("dataEmissao",e.target.value)} />
+        </div>
+        <div className="grid grid-cols-3 gap-4 mt-4">
+          <Textarea label="Passageiros (múltiplos)" value={form.passageiros} onChange={e=>upd("passageiros",e.target.value)} rows={3} placeholder={"1.SOBRENOME/NOME TITLE\n2.SOBRENOME/NOME TITLE"} />
+          <Textarea label="Roteiro (voos GDS)" value={form.roteiro} onChange={e=>upd("roteiro",e.target.value)} rows={3} placeholder={"3 LA8084 L 23JAN 5 GRULHR HK2 2340 1405+1\n4 LX317 H 27JAN 2 LHRZRH HK2 0900 1155"} />
+          <Input label="LOC (Localizador)" value={form.loc} onChange={e=>upd("loc",e.target.value)} placeholder="Ex: B2C7JN" />
+        </div>
+        <div className="border-t border-gray-100 mt-4 pt-4">
+          <div className="flex items-center gap-2 mb-3">
+            <input type="checkbox" id="markupReem" checked={form.aplicarMarkup} onChange={e=>upd("aplicarMarkup",e.target.checked)} className="w-4 h-4" />
+            <label htmlFor="markupReem" className="text-sm text-gray-600 cursor-pointer">Aplicar Markup na tarifa (tarifas net-net)</label>
+          </div>
+          {form.aplicarMarkup&&(
+            <div className="flex items-end gap-4">
+              <div className="w-48"><Input label="Markup %" type="number" step="0.01" value={form.markup} onChange={e=>upd("markup",e.target.value)} placeholder="Ex: 10" /></div>
+              <div className="text-xs text-gray-400 pb-2">Aplica fórmula: tarifa ÷ (1 - markup%)</div>
+            </div>
+          )}
+        </div>
+      </Card>
+      <div className="flex gap-3">
+        <Button onClick={calcular}>🧮 Calcular</Button>
+        <Button variant="secondary" onClick={copiar} disabled={result==="Cole o resumo Amadeus (ET*) e clique em CALCULAR"}>{copied?"✓ Copiado!":"📋 Copiar"}</Button>
+        <Button variant="secondary" onClick={limpar}>🗑 Limpar</Button>
+      </div>
+      <Terminal>{result}</Terminal>
+    </div>
+  );
+}
+
+
+// ============================================================
+// MÓDULO: REEMISSÃO MANUAL (COLAR MÁSCARA GDS)
+// ============================================================
+function ModuloReemissaoManual() {
   const [mode, setMode] = useState('paste'); // 'paste' | 'manual'
   const [taNovo, setTaNovo] = useState('');
   const [taCred, setTaCred] = useState('');
@@ -1142,7 +1272,7 @@ function PainelAdmin({ onLogout }) {
   const menus = [
     {id:"Dashboard",icon:"📊",grupo:"admin"},{id:"Usuários",icon:"👥",grupo:"admin"},
     {id:"Pagamentos",icon:"💰",grupo:"admin"},{id:"Configurações",icon:"⚙️",grupo:"admin"},
-    {id:"Tarifas",icon:"🧮",grupo:"ferramentas"},{id:"Conversor",icon:"✈️",grupo:"ferramentas"},{id:"Reemissão",icon:"🔄",grupo:"ferramentas"},
+    {id:"Tarifas",icon:"🧮",grupo:"ferramentas"},{id:"Conversor",icon:"✈️",grupo:"ferramentas"},{id:"Reemissão",icon:"🔄",grupo:"ferramentas"},{id:"Remarcação",icon:"🔁",grupo:"ferramentas"},
   ];
 
   return (
@@ -1374,6 +1504,7 @@ function PainelAdmin({ onLogout }) {
           {tab==="Tarifas"&&<ModuloTarifas/>}
           {tab==="Conversor"&&<ModuloConversor/>}
           {tab==="Reemissão"&&<ModuloReemissao/>}
+          {tab==="Remarcação"&&<ModuloReemissaoManual/>}
         </main>
       </div>
     </div>
@@ -1390,7 +1521,7 @@ function Dashboard({ user, onLogout, onGoAdmin }) {
   const isTrial = user.plan === "trial";
   const isPendingPro = user.plan === "pending_pro";
   const trialDaysLeft = user.trialDays || 5;
-  const menus = ["Tarifas", "Conversor", "Reemissão"];
+  const menus = ["Tarifas", "Conversor", "Reemissão", "Remarcação"];
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -1422,7 +1553,7 @@ function Dashboard({ user, onLogout, onGoAdmin }) {
           {menus.map(m => (
             <button key={m} onClick={() => setModulo(m)}
               className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium mb-1 transition-all ${modulo===m?"bg-blue-600 text-white":"text-gray-600 hover:bg-gray-100"}`}>
-              {m==="Tarifas"&&"🧮 "}{m==="Conversor"&&"✈️ "}{m==="Reemissão"&&"🔄 "}{m}
+              {m==="Tarifas"&&"🧮 "}{m==="Conversor"&&"✈️ "}{m==="Reemissão"&&"🔄 "}{m==="Remarcação"&&"🔁 "}{m}
             </button>
           ))}
 
@@ -1460,6 +1591,7 @@ function Dashboard({ user, onLogout, onGoAdmin }) {
           {modulo==="Tarifas"&&<ModuloTarifas/>}
           {modulo==="Conversor"&&<ModuloConversor/>}
           {modulo==="Reemissão"&&<ModuloReemissao/>}
+          {modulo==="Remarcação"&&<ModuloReemissaoManual/>}
         </main>
       </div>
     </div>
