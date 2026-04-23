@@ -729,23 +729,63 @@ function ModuloReemissao() {
     const totalAddCalc=baseCalcBRL+difTaxas+penaltyBRL;
     const diffValid=Math.abs(totalAddCalc-totalAddCollGDS);
     const pad=12;
-    let out=`       CÁLCULO DE REMARCAÇÃO - ADT\n       Data: ${formatDateBR(form.dataEmissao)}\n       Cotação USD: R$ ${cotacao.toFixed(4).replace(".",",")}\n       FEE: U$ ${feeUSD.toFixed(2).replace(".",",")}\n`;
-    if(comMarkup){out+=`       MARKUP: ${form.markup}% aplicado\n       OLD FARE: USD ${oldOriginal.toFixed(2)} → USD ${oldBaseFareUSD.toFixed(2)}\n       NEW FARE: USD ${newOriginal.toFixed(2)} → USD ${newBaseFareUSD.toFixed(2)}\n`;}
-    out+=`       ---------------------------------------\n\n`;
-    if(form.passageiros.trim()){const paxLines=form.passageiros.trim().split("\n");out+=`PASSAGEIRO:  ${paxLines[0]}\n`;paxLines.slice(1).forEach(l=>out+=`             ${l}\n`);out+="\n";}
-    else if(form.passageiro)out+=`PASSAGEIRO: ${form.passageiro}\n\n`;
-    if(form.roteiro.trim()){const rotLines=form.roteiro.trim().split("\n");out+=`ROTA:   ${rotLines[0]}\n`;rotLines.slice(1).forEach(l=>out+=`        ${l}\n`);out+="\n";}
-    else if(form.rota)out+=`ROTA: ${form.rota}\n\n`;
+    const sep="─".repeat(42);
+
+    // ── OUTPUT PARA O CLIENTE ──
+    let out=`CÁLCULO DE REMARCAÇÃO - ADT\n`;
+    out+=`Data: ${formatDateBR(form.dataEmissao)}\n`;
+    out+=`Cotação USD: R$ ${cotacao.toFixed(4).replace(".",",")}\n`;
+    out+=`FEE: U$ ${feeUSD.toFixed(2).replace(".",",")}\n`;
+    out+=`${sep}\n\n`;
+    if(form.passageiros.trim()){
+      const paxLines=form.passageiros.trim().split("\n");
+      out+=`PASSAGEIRO:  ${paxLines[0]}\n`;
+      paxLines.slice(1).forEach(l=>out+=`             ${l}\n`);
+      out+="\n";
+    } else if(form.passageiro){
+      out+=`PASSAGEIRO: ${form.passageiro}\n\n`;
+    }
+    if(form.roteiro.trim()){
+      const rotLines=form.roteiro.trim().split("\n");
+      out+=`ROTA:   ${rotLines[0]}\n`;
+      rotLines.slice(1).forEach(l=>out+=`        ${l}\n`);
+      out+="\n";
+    } else if(form.rota){
+      out+=`ROTA: ${form.rota}\n\n`;
+    }
     if(form.loc)out+=`LOC.: ${form.loc}\n`;
     if(form.ticketOriginal)out+=`TICKET ORIGINAL: ${form.ticketOriginal}\n`;
-    out+=`----------------------------------------\n\nDiferença de tarifa (R$)     R$ ${formatVal(baseCalcBRL).padStart(pad)}\nDiferença de taxas           R$ ${formatVal(difTaxas).padStart(pad)}\nMulta                        R$ ${formatVal(penaltyBRL).padStart(pad)}\nFEE                          R$ ${formatVal(feeBRL).padStart(pad)}\n`;
+    out+=`${sep}\n\n`;
+    out+=`Diferença de tarifa (R$)     R$ ${formatVal(baseCalcBRL).padStart(pad)}\n`;
+    out+=`Diferença de taxas           R$ ${formatVal(difTaxas).padStart(pad)}\n`;
+    out+=`Multa                        R$ ${formatVal(penaltyBRL).padStart(pad)}\n`;
+    out+=`FEE                          R$ ${formatVal(feeBRL).padStart(pad)}\n`;
     if(ravVal>0)out+=`RAV - ${(ravPercent*100).toFixed(0)}%                     R$ ${formatVal(ravVal).padStart(pad)}\n`;
-    out+=`----------------------------------------\nTOTAL POR PAX                R$ ${formatVal(totalPorPax).padStart(pad)}\n========================================\n***VALORES POR PAX SUJEITOS A ALTERAÇÃO***\n\nCONFERÊNCIA GDS:\nTICKET DIFFERENCE            R$ ${formatVal(ticketDiffBRL).padStart(pad)}\nPENALTY                      R$ ${formatVal(penaltyBRL).padStart(pad)}\n`;
-    if(residualValueBRL<0){out+=`RESIDUAL (abs)               R$ ${formatVal(Math.abs(residualValueBRL)).padStart(pad)}\n----------------------------------------\nTOTAL ADD COLL (GDS)         R$ ${formatVal(totalAddCollGDS).padStart(pad)}\n`;out+=diffValid<0.01?`✅ VALIDAÇÃO: BATE COM O GDS\n`:`⚠️  DIFERENÇA: R$ ${formatVal(diffValid)}\n`;}
-    out+=`========================================\n`;
+    out+=`${sep}\n`;
+    out+=`TOTAL POR PAX                R$ ${formatVal(totalPorPax).padStart(pad)}\n`;
+    out+=`${"=".repeat(42)}\n`;
+    out+=`***VALORES POR PAX SUJEITOS A ALTERAÇÃO***\n`;
+
+    // ── CONFERÊNCIA (não enviar) ──
+    out+=`\n${sep}\n--- CONFERÊNCIA (não enviar) ---\n${sep}\n`;
+    if(comMarkup){
+      out+=`OLD FARE: USD ${oldOriginal.toFixed(2)} → USD ${oldBaseFareUSD.toFixed(2)}\n`;
+      out+=`NEW FARE: USD ${newOriginal.toFixed(2)} → USD ${newBaseFareUSD.toFixed(2)}\n`;
+      out+=`Markup aplicado: ${form.markup}%\n`;
+    } else {
+      out+=`OLD BASE FARE: USD ${oldOriginal.toFixed(2)} = R$ ${formatVal(oldOriginal*cotacao)}\n`;
+      out+=`NEW BASE FARE: USD ${newOriginal.toFixed(2)} = R$ ${formatVal(newOriginal*cotacao)}\n`;
+    }
+    out+=`FARE BALANCE:  R$ ${formatVal(baseCalcBRL).padStart(pad)}\n`;
+    out+=`TAX BALANCE:   R$ ${formatVal(difTaxas).padStart(pad)}\n`;
+    out+=`PENALTY:       R$ ${formatVal(penaltyBRL).padStart(pad)}\n`;
+    if(Math.abs(totalAddCollGDS)>0.01){
+      out+=`${sep}\n`;
+      out+=`TOTAL ADD COLL (GDS): R$ ${formatVal(totalAddCollGDS).padStart(8)}\n`;
+      out+=diffValid<0.01?`✅ VALIDAÇÃO: BATE COM O GDS\n`:`⚠️  DIFERENÇA: R$ ${formatVal(diffValid)}\n`;
+    }
     if(residualValueBRL<0)out+=`* Taxas incluem compensação de residual negativo\n`;
     if(nonRefundableTax>0)out+=`* Non Refundable Tax (R$ ${formatVal(nonRefundableTax)}) não entra no cálculo\n`;
-    out+=`Total Add Collect (GDS):     R$ ${formatVal(totalAddCollGDS).padStart(10)}\n***VALORES POR PAX SUJEITOS A ALTERAÇÃO***\n* Emissão: ${formatDateBR(form.dataEmissao)}`;
     setResult(out);
   };
 
@@ -825,6 +865,11 @@ function ModuloReemissaoManual() {
   const [newNova, setNewNova] = useState('');
   const [newCred, setNewCred] = useState('');
   const [copied, setCopied] = useState(false);
+  const [mform, setMform] = useState({
+    passageiro:'', passageiros:'', rota:'', roteiro:'', loc:'', ticketOriginal:'',
+    dataEmissao: new Date().toISOString().split('T')[0],
+  });
+  const updM = (k,v) => setMform(f=>({...f,[k]:v}));
 
   const updCfg = (k,v) => setCfg(c=>({...c,[k]:v}));
   const taxDiff = (nova,cred) => Math.max(0, nova-cred);
@@ -925,23 +970,62 @@ function ModuloReemissaoManual() {
     setNewCode('');setNewNova('');setNewCred('');
   };
 
+  const formatValM=(v)=>{if(Math.abs(v)<0.01)return'0,00';return v.toFixed(2).replace('.',',');};
+  const formatDateM=(d)=>{if(!d)return'';const[y,m,dia]=d.split('-');return`${dia}/${m}/${y}`;};
+  const padM=12;
+  const sepM='─'.repeat(42);
+
   const gerarTexto=()=>{
     const o=parseFloat(oldUSD)||0, n=parseFloat(newUSD)||0;
-    let out=`CÁLCULO DE REEMISSÃO\n${'─'.repeat(46)}\n`;
-    out+=`OLD BASE FARE:  USD ${o.toFixed(2).padStart(10)} = ${brl(oldBRL).padStart(14)}\n`;
-    out+=`NEW BASE FARE:  USD ${n.toFixed(2).padStart(10)} = ${brl(newBRL).padStart(14)}\n`;
-    out+=`FARE BALANCE:   ${brl(fareBalance).padStart(26)}\n`;
-    out+=`${'─'.repeat(46)}\n`;
-    taxes.filter(t=>taxDiff(t.nova,t.cred)>0).forEach(t=>{
-      out+=`${t.code.padEnd(6)} ${brl(taxDiff(t.nova,t.cred)).padStart(20)}\n`;
-    });
-    out+=`TAX BALANCE:    ${brl(taxBalance).padStart(26)}\n`;
-    out+=`PENALTY:        ${brl(penalty).padStart(26)}\n`;
-    out+=`FEE:            ${brl(feeBRL).padStart(26)}\n`;
-    out+=`RAV:            ${brl(rav).padStart(26)}\n`;
-    out+=`${'─'.repeat(46)}\n`;
-    out+=`TOTAL A COBRAR: ${brl(total).padStart(26)}\n`;
-    out+=`* Câmbio: 1 USD = R$ ${cambio.toFixed(4)}`;
+
+    // ── OUTPUT PARA O CLIENTE ──
+    let out=`CÁLCULO DE REMARCAÇÃO - ADT\n`;
+    out+=`Data: ${formatDateM(mform.dataEmissao)}\n`;
+    out+=`Cotação USD: R$ ${cambio.toFixed(4).replace('.',',')}\n`;
+    out+=`FEE: U$ ${feeUSD.toFixed(2).replace('.',',')}\n`;
+    out+=`${sepM}\n\n`;
+    if(mform.passageiros.trim()){
+      const paxLines=mform.passageiros.trim().split('\n');
+      out+=`PASSAGEIRO:  ${paxLines[0]}\n`;
+      paxLines.slice(1).forEach(l=>out+=`             ${l}\n`);
+      out+='\n';
+    } else if(mform.passageiro){
+      out+=`PASSAGEIRO: ${mform.passageiro}\n\n`;
+    }
+    if(mform.roteiro.trim()){
+      const rotLines=mform.roteiro.trim().split('\n');
+      out+=`ROTA:   ${rotLines[0]}\n`;
+      rotLines.slice(1).forEach(l=>out+=`        ${l}\n`);
+      out+='\n';
+    } else if(mform.rota){
+      out+=`ROTA: ${mform.rota}\n\n`;
+    }
+    if(mform.loc)out+=`LOC.: ${mform.loc}\n`;
+    if(mform.ticketOriginal)out+=`TICKET ORIGINAL: ${mform.ticketOriginal}\n`;
+    out+=`${sepM}\n\n`;
+    out+=`Diferença de tarifa (R$)     R$ ${formatValM(fareBalance).padStart(padM)}\n`;
+    out+=`Diferença de taxas           R$ ${formatValM(taxBalance).padStart(padM)}\n`;
+    out+=`Multa                        R$ ${formatValM(penalty).padStart(padM)}\n`;
+    out+=`FEE                          R$ ${formatValM(feeBRL).padStart(padM)}\n`;
+    if(rav>0)out+=`RAV                          R$ ${formatValM(rav).padStart(padM)}\n`;
+    out+=`${sepM}\n`;
+    out+=`TOTAL POR PAX                R$ ${formatValM(total).padStart(padM)}\n`;
+    out+=`${'='.repeat(42)}\n`;
+    out+=`***VALORES POR PAX SUJEITOS A ALTERAÇÃO***\n`;
+
+    // ── CONFERÊNCIA (não enviar) ──
+    out+=`\n${sepM}\n--- CONFERÊNCIA (não enviar) ---\n${sepM}\n`;
+    out+=`OLD BASE FARE: USD ${o.toFixed(2)} = ${brl(oldBRL)}\n`;
+    out+=`NEW BASE FARE: USD ${n.toFixed(2)} = ${brl(newBRL)}\n`;
+    out+=`FARE BALANCE:  ${brl(fareBalance)}\n`;
+    out+=`TAX BALANCE:   ${brl(taxBalance)}\n`;
+    if(taxes.filter(t=>taxDiff(t.nova,t.cred)>0).length>0){
+      out+=`Taxas com diferença:\n`;
+      taxes.filter(t=>taxDiff(t.nova,t.cred)>0).forEach(t=>{
+        out+=`  ${t.code.padEnd(6)} Nova: ${brl(t.nova).padEnd(14)} Créd: ${brl(t.cred).padEnd(14)} Dif: ${brl(taxDiff(t.nova,t.cred))}\n`;
+      });
+    }
+    out+=`Câmbio: 1 USD = R$ ${cambio.toFixed(4)}`;
     return out;
   };
 
@@ -1126,9 +1210,29 @@ function ModuloReemissaoManual() {
         </div>
       </div>
 
+      {/* DADOS DO CLIENTE */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-5">
+        <div className="text-xs font-mono font-bold text-gray-400 uppercase tracking-widest mb-4">Dados para o cliente</div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+          <Input label="Data" type="date" value={mform.dataEmissao} onChange={e=>updM('dataEmissao',e.target.value)} />
+          <Input label="Passageiro (simples)" value={mform.passageiro} onChange={e=>updM('passageiro',e.target.value)} placeholder="Nome completo" />
+          <Input label="LOC (Localizador)" value={mform.loc} onChange={e=>updM('loc',e.target.value)} placeholder="Ex: B2C7JN" />
+          <Input label="Ticket Original" value={mform.ticketOriginal} onChange={e=>updM('ticketOriginal',e.target.value)} placeholder="Número do bilhete" />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <Textarea label="Passageiros (múltiplos)" value={mform.passageiros} onChange={e=>updM('passageiros',e.target.value)}
+            rows={3} placeholder={"1.SOBRENOME/NOME TITLE\n2.SOBRENOME/NOME TITLE"} />
+          <Textarea label="Roteiro (voos GDS)" value={mform.roteiro} onChange={e=>updM('roteiro',e.target.value)}
+            rows={3} placeholder={"3 AF415 A 10MAY 7 FORCDG HK2 1955 0925\n4 AF111 Y 26JUN 4 PVGCDG HK1 2130 0550+1"} />
+        </div>
+        <div className="mt-3">
+          <Input label="Rota (simples)" value={mform.rota} onChange={e=>updM('rota',e.target.value)} placeholder="Ex: GRU-CDG-NRT" />
+        </div>
+      </div>
+
       <div className="flex gap-3">
         <Button onClick={copiar}>{copied?'✓ Copiado!':'📋 Copiar resultado'}</Button>
-        <Button variant="secondary" onClick={()=>{setTaxes([]);setTaNovo('');setTaCred('');setParseMsg(null);}}>🗑 Limpar</Button>
+        <Button variant="secondary" onClick={()=>{setTaxes([]);setTaNovo('');setTaCred('');setParseMsg(null);setMform({passageiro:'',passageiros:'',rota:'',roteiro:'',loc:'',ticketOriginal:'',dataEmissao:new Date().toISOString().split('T')[0]});}}>🗑 Limpar</Button>
       </div>
     </div>
   );
