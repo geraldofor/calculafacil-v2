@@ -509,6 +509,7 @@ function ModuloTarifas() {
     setResultado({p,tUSD,tBRL,totalBRL,ravVal,feeVal,totalFinal,tUSDOriginal,tBRLOriginal,totalBRLOriginal,comMarkup});
   };
 
+  const fmtBRL=(v)=>'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
   const formatOutput=()=>{
     if(!resultado)return"";
     const{p,tUSD,tBRL,totalBRL,ravVal,feeVal,totalFinal,tUSDOriginal,tBRLOriginal,comMarkup}=resultado;
@@ -516,23 +517,41 @@ function ModuloTarifas() {
     const comp=voo||"-";
     const bag=bagagem||"-";
     const rate=p.exchangeRate?`1 USD = R$ ${p.exchangeRate.toFixed(4)}`:"-";
-    let out=`Cia/Voo: ${comp}\nCabine: ${cab}\nBagagem: ${bag}\n${"─".repeat(46)}\n`;
-    if(comMarkup){
-      out+=`Tarifa Base USD (original): USD ${tUSDOriginal.toFixed(2).padStart(10)}\n`;
-      out+=`Markup (${markupPct}%):              USD ${(tUSD-tUSDOriginal).toFixed(2).padStart(10)}\n`;
-      out+=`Tarifa USD (c/ markup):    USD ${tUSD.toFixed(2).padStart(10)}\n`;
-      out+=`Tarifa BRL (c/ markup):    BRL ${tBRL.toFixed(2).padStart(10)}\n`;
-    } else {
-      out+=`Tarifa Base (USD):  USD ${tUSD.toFixed(2).padStart(12)}\n`;
-      out+=`Tarifa BRL:         BRL ${tBRL.toFixed(2).padStart(12)}\n`;
+    const sep="─".repeat(46);
+
+    // ── OUTPUT PARA O CLIENTE ──
+    let out=`Cia/Voo: ${comp}\nCabine: ${cab}\nBagagem: ${bag}\n${sep}\n`;
+    out+=`Tarifa USD:           USD ${tUSD.toFixed(2).padStart(10)}\n`;
+    out+=`Tarifa BRL:           ${fmtBRL(tBRL).padStart(18)}\n`;
+    out+=`Taxas:                ${fmtBRL(totalBRL-tBRL).padStart(18)}\n`;
+    out+=`RAV (${rav}%):            ${fmtBRL(ravVal).padStart(18)}\n`;
+    out+=`FEE:                  ${fmtBRL(feeVal).padStart(18)}\n`;
+    out+=`${sep}\n`;
+    out+=`TOTAL FINAL:          ${fmtBRL(totalFinal).padStart(18)}\n`;
+    out+=`${sep}\n`;
+    out+=`Pagamento: ${parcelas}\n`;
+    if(multaRem||multaReemb){
+      out+=`\n[ REGRAS E PENALIDADES ]\n`;
+      if(multaRem&&multaRem!=="N/A")out+=`Reemissão: USD ${multaRem}\n`;
+      if(multaReemb&&multaReemb!=="N/A")out+=`Reembolso: USD ${multaReemb}\n`;
     }
-    out+=`Taxas:              BRL ${(totalBRL-tBRL).toFixed(2).padStart(12)}\n`;
-    out+=`Total Parcial:      BRL ${totalBRL.toFixed(2).padStart(12)}\n`;
-    out+=`RAV (${rav}%):          BRL ${ravVal.toFixed(2).padStart(12)}\n`;
-    out+=`FEE:                BRL ${feeVal.toFixed(2).padStart(12)}\n`;
-    out+=`${"─".repeat(46)}\nTOTAL FINAL:        BRL ${totalFinal.toFixed(2).padStart(12)}\n${"─".repeat(46)}\n`;
-    out+=`Pagamento: ${parcelas}\n\n[ REGRAS E PENALIDADES ]\n`;
-    out+=`Reemissão: USD ${multaRem||"N/A"}\nReembolso: USD ${multaReemb||"N/A"}\n\n* Cotação: ${rate}`;
+
+    // ── CONFERÊNCIA (não enviar) ──
+    out+=`\n${sep}\n--- CONFERÊNCIA (não enviar) ---\n${sep}\n`;
+    if(comMarkup){
+      out+=`Tarifa base USD:      USD ${tUSDOriginal.toFixed(2).padStart(10)}\n`;
+      out+=`Markup (${markupPct}%):         USD ${(tUSD-tUSDOriginal).toFixed(2).padStart(10)}\n`;
+      out+=`Tarifa c/ markup:     USD ${tUSD.toFixed(2).padStart(10)}\n`;
+      out+=`Tarifa BRL c/ markup: ${fmtBRL(tBRL).padStart(18)}\n`;
+    } else {
+      out+=`Tarifa USD:           USD ${tUSD.toFixed(2).padStart(10)}\n`;
+      out+=`Tarifa BRL:           ${fmtBRL(tBRL).padStart(18)}\n`;
+    }
+    out+=`Taxas:                ${fmtBRL(totalBRL-tBRL).padStart(18)}\n`;
+    out+=`Total parcial:        ${fmtBRL(totalBRL).padStart(18)}\n`;
+    out+=`RAV (${rav}%):            ${fmtBRL(ravVal).padStart(18)}\n`;
+    out+=`FEE:                  ${fmtBRL(feeVal).padStart(18)}\n`;
+    out+=`Câmbio: ${rate}`;
     return out;
   };
 
@@ -705,29 +724,42 @@ function ModuloReemissao() {
     const ticketDiffBRL=extractVal(texto,/TICKET\s+DIFFERENCE\s+BRL\s+([\-\d,.]+)/i);
     const totalAddColBRL=extractVal(texto,/TOTAL\s+ADD\s+COLL\s+BRL\s+([\-\d,.]+)/i);
     const nonRefundableTax=extractVal(texto,/NON\s+REFUNDABLE\s+TAX\s+BRL\s+([\-\d,.]+)/i);
-    let oldOriginal=oldBaseFareUSD,newOriginal=newBaseFareUSD,comMarkup=false;
-    // Guarda valores originais antes do markup
-    const oldBRLoriginal = oldBaseFareUSD * cotacao;
-    const newBRLoriginal = newBaseFareUSD * cotacao;
-    if(form.aplicarMarkup&&parseFloat(form.markup)>0){
-      const mp=parseFloat(form.markup)/100;
-      oldBaseFareUSD=oldBaseFareUSD/(1-mp);
-      newBaseFareUSD=newBaseFareUSD/(1-mp);
-      // Recalcula fareBalance com markup independente do que veio no ET*
-      fareBalanceBRL=Math.max(0,(newBaseFareUSD-oldBaseFareUSD)*cotacao);
-      comMarkup=true;
+    const oldOriginal=oldBaseFareUSD, newOriginal=newBaseFareUSD;
+    let comMarkup=false;
+
+    // BASE DA TARIFA — prioridade: FARE BALANCE BRL > TICKET DIFFERENCE BRL
+    let baseOriginalBRL = Math.abs(fareBalanceBRL) > 0.01
+      ? fareBalanceBRL
+      : ticketDiffBRL > 0 ? ticketDiffBRL : 0;
+
+    // MARKUP — aplica SEMPRE em BRL sobre a base da tarifa
+    let baseCalcBRL = baseOriginalBRL;
+    if(form.aplicarMarkup && parseFloat(form.markup)>0){
+      const mp = parseFloat(form.markup)/100;
+      baseCalcBRL = baseOriginalBRL / (1 - mp);
+      comMarkup = true;
     }
-    let baseCalcBRL=fareBalanceBRL;
-    if(Math.abs(fareBalanceBRL)<0.01&&ticketDiffBRL>0)baseCalcBRL=ticketDiffBRL;
-    let difTaxas=taxBalanceBRL;
-    if(residualValueBRL<0)difTaxas=taxBalanceBRL+Math.abs(residualValueBRL);
-    let totalAddCollGDS=Math.abs(totalAddColBRL)>0.01?totalAddColBRL:ticketDiffBRL>0?ticketDiffBRL+penaltyBRL+Math.abs(residualValueBRL):taxBalanceBRL+penaltyBRL+Math.abs(residualValueBRL);
-    const feeBRL=feeUSD*cotacao;
-    let ravVal=0;
-    if(baseCalcBRL>0){ravVal=baseCalcBRL*ravPercent;if(ravVal<ravMinimo)ravVal=ravMinimo;}
-    const totalPorPax=baseCalcBRL+difTaxas+penaltyBRL+feeBRL+ravVal;
-    const totalAddCalc=baseCalcBRL+difTaxas+penaltyBRL;
-    const diffValid=Math.abs(totalAddCalc-totalAddCollGDS);
+
+    // TAXAS
+    let difTaxas = taxBalanceBRL;
+    if(residualValueBRL<0) difTaxas = taxBalanceBRL + Math.abs(residualValueBRL);
+
+    // RAV — somente sobre a diferença de TARIFA (não sobre taxas)
+    const feeBRL = feeUSD * cotacao;
+    let ravVal = 0;
+    if(baseCalcBRL > 0){
+      ravVal = baseCalcBRL * ravPercent;
+      if(ravVal < ravMinimo) ravVal = ravMinimo;
+    }
+
+    const totalPorPax = baseCalcBRL + difTaxas + penaltyBRL + feeBRL + ravVal;
+    const totalAddCollGDS = Math.abs(totalAddColBRL)>0.01
+      ? totalAddColBRL
+      : ticketDiffBRL>0
+        ? ticketDiffBRL + penaltyBRL + Math.abs(residualValueBRL)
+        : taxBalanceBRL + penaltyBRL + Math.abs(residualValueBRL);
+    const totalAddCalc = baseOriginalBRL + difTaxas + penaltyBRL;
+    const diffValid = Math.abs(totalAddCalc - totalAddCollGDS);
     const pad=12;
     const sep="─".repeat(42);
 
@@ -768,18 +800,18 @@ function ModuloReemissao() {
 
     // ── CONFERÊNCIA (não enviar) ──
     out+=`\n${sep}\n--- CONFERÊNCIA (não enviar) ---\n${sep}\n`;
-    if(comMarkup){
-      out+=`OLD FARE: USD ${oldOriginal.toFixed(2)} → USD ${oldBaseFareUSD.toFixed(2)}\n`;
-      out+=`NEW FARE: USD ${newOriginal.toFixed(2)} → USD ${newBaseFareUSD.toFixed(2)}\n`;
-      out+=`Markup aplicado: ${form.markup}%\n`;
-    } else {
+    if(oldOriginal>0){
       out+=`OLD BASE FARE: USD ${oldOriginal.toFixed(2)} = R$ ${formatVal(oldOriginal*cotacao)}\n`;
       out+=`NEW BASE FARE: USD ${newOriginal.toFixed(2)} = R$ ${formatVal(newOriginal*cotacao)}\n`;
     }
-    out+=`FARE BALANCE:  R$ ${formatVal(baseCalcBRL).padStart(pad)}\n`;
-    out+=`TAX BALANCE:   R$ ${formatVal(difTaxas).padStart(pad)}\n`;
-    out+=`PENALTY:       R$ ${formatVal(penaltyBRL).padStart(pad)}\n`;
-    if(Math.abs(totalAddCollGDS)>0.01){
+    out+=`FARE BALANCE (GDS):  R$ ${formatVal(baseOriginalBRL).padStart(pad)}\n`;
+    if(comMarkup){
+      out+=`Markup ${form.markup}%:          R$ ${formatVal(baseCalcBRL - baseOriginalBRL).padStart(pad)}\n`;
+      out+=`FARE BALANCE c/mk:   R$ ${formatVal(baseCalcBRL).padStart(pad)}\n`;
+    }
+    out+=`TAX BALANCE:         R$ ${formatVal(difTaxas).padStart(pad)}\n`;
+    out+=`PENALTY:             R$ ${formatVal(penaltyBRL).padStart(pad)}\n`;
+    if(!comMarkup && Math.abs(totalAddCollGDS)>0.01){
       out+=`${sep}\n`;
       out+=`TOTAL ADD COLL (GDS): R$ ${formatVal(totalAddCollGDS).padStart(8)}\n`;
       out+=diffValid<0.01?`✅ VALIDAÇÃO: BATE COM O GDS\n`:`⚠️  DIFERENÇA: R$ ${formatVal(diffValid)}\n`;
@@ -858,7 +890,7 @@ function ModuloReemissaoManual() {
     {code:'US2',nova:19.08,cred:120.49},{code:'XA',nova:34.78,cred:19.77},
     {code:'XY',nova:36.72,cred:36.04},{code:'YC',nova:4.71,cred:38.05},
   ]);
-  const [cfg, setCfg] = useState({ cambio:'5.0821', feeUSD:'30', rav:'200', penalty:'0' });
+  const [cfg, setCfg] = useState({ cambio:'5.0821', feeUSD:'30', rav:'200', ravPct:'7', markupPct:'0', penalty:'0' });
   const [oldUSD, setOldUSD] = useState('1258.00');
   const [newUSD, setNewUSD] = useState('1421.00');
   const [newCode, setNewCode] = useState('');
@@ -951,14 +983,20 @@ function ModuloReemissaoManual() {
   // ── CÁLCULOS ──
   const cambio=parseFloat(cfg.cambio)||0;
   const feeUSD=parseFloat(cfg.feeUSD)||0;
-  const rav=parseFloat(cfg.rav)||0;
+  const ravBRL=parseFloat(cfg.rav)||0;
   const penalty=parseFloat(cfg.penalty)||0;
   const oldBRL=(parseFloat(oldUSD)||0)*cambio;
   const newBRL=(parseFloat(newUSD)||0)*cambio;
-  const fareBalance=Math.max(0,newBRL-oldBRL);
+  // Fare balance = diferença de tarifa em BRL
+  const fareBalanceOriginal=Math.max(0,newBRL-oldBRL);
+  // Markup aplicado em BRL sobre a diferença de tarifa
+  const markupPctM=parseFloat(cfg.markupPct||'0')||0;
+  const fareBalance=markupPctM>0 ? fareBalanceOriginal/(1-markupPctM/100) : fareBalanceOriginal;
   const taxBalance=taxes.reduce((s,t)=>s+taxDiff(t.nova,t.cred),0);
   const feeBRL=feeUSD*cambio;
-  const total=fareBalance+taxBalance+penalty+feeBRL+rav;
+  // RAV somente sobre diferença de TARIFA
+  const ravCalc=fareBalance>0?Math.max(ravBRL, fareBalance*(parseFloat(cfg.ravPct||'0')||0)/100):0;
+  const total=fareBalance+taxBalance+penalty+feeBRL+ravCalc;
 
   const updTax=(i,field,val)=>{
     setTaxes(tx=>tx.map((t,idx)=>idx===i?{...t,[field]:parseFloat(val)||0}:t));
@@ -1007,7 +1045,7 @@ function ModuloReemissaoManual() {
     out+=`Diferença de taxas           R$ ${formatValM(taxBalance).padStart(padM)}\n`;
     out+=`Multa                        R$ ${formatValM(penalty).padStart(padM)}\n`;
     out+=`FEE                          R$ ${formatValM(feeBRL).padStart(padM)}\n`;
-    if(rav>0)out+=`RAV                          R$ ${formatValM(rav).padStart(padM)}\n`;
+    if(ravCalc>0)out+=`RAV                          R$ ${formatValM(ravCalc).padStart(padM)}\n`;
     out+=`${sepM}\n`;
     out+=`TOTAL POR PAX                R$ ${formatValM(total).padStart(padM)}\n`;
     out+=`${'='.repeat(42)}\n`;
@@ -1017,8 +1055,12 @@ function ModuloReemissaoManual() {
     out+=`\n${sepM}\n--- CONFERÊNCIA (não enviar) ---\n${sepM}\n`;
     out+=`OLD BASE FARE: USD ${o.toFixed(2)} = ${brl(oldBRL)}\n`;
     out+=`NEW BASE FARE: USD ${n.toFixed(2)} = ${brl(newBRL)}\n`;
-    out+=`FARE BALANCE:  ${brl(fareBalance)}\n`;
-    out+=`TAX BALANCE:   ${brl(taxBalance)}\n`;
+    out+=`FARE BALANCE (GDS):  ${brl(fareBalanceOriginal)}\n`;
+    if(markupPctM>0){
+      out+=`Markup ${markupPctM}%:          ${brl(fareBalance - fareBalanceOriginal)}\n`;
+      out+=`FARE BALANCE c/mk:   ${brl(fareBalance)}\n`;
+    }
+    out+=`TAX BALANCE:         ${brl(taxBalance)}\n`;
     if(taxes.filter(t=>taxDiff(t.nova,t.cred)>0).length>0){
       out+=`Taxas com diferença:\n`;
       taxes.filter(t=>taxDiff(t.nova,t.cred)>0).forEach(t=>{
@@ -1085,7 +1127,9 @@ function ModuloReemissaoManual() {
           {[
             {label:'CÂMBIO (1 USD =)',key:'cambio',unit:'BRL'},
             {label:'FEE AGÊNCIA',key:'feeUSD',unit:'USD'},
-            {label:'RAV',key:'rav',unit:'BRL'},
+            {label:'RAV MÍNIMO',key:'rav',unit:'BRL'},
+            {label:'RAV %',key:'ravPct',unit:'%'},
+            {label:'MARKUP %',key:'markupPct',unit:'%'},
             {label:'PENALIDADE',key:'penalty',unit:'BRL'},
           ].map(f=>(
             <div key={f.key} className="flex flex-col gap-1">
