@@ -1241,7 +1241,7 @@ function ModuloReemissaoManual() {
           {label:'TAX BALANCE',val:brl(taxBalance)},
           {label:'PENALTY',val:brl(penalty)},
           {label:`FEE  USD ${feeUSD} × ${cambio}`,val:brl(feeBRL)},
-          {label:'RAV',val:brl(rav)},
+          {label:'RAV',val:brl(ravCalc)},
         ].map(r=>(
           <div key={r.label} className="flex justify-between items-baseline py-2 border-b border-gray-800 text-sm font-mono">
             <span className="text-gray-500">{r.label}</span>
