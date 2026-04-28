@@ -945,11 +945,30 @@ function ModuloReemissaoManual() {
 
   const parseCredito = (text) => {
     const flat=text.replace(/\n/g,' ').replace(/\s+/g,' ');
-    const usdM=flat.match(/FARE\s+R?\s*USD\s+([\d\.]+)/i);
+    // Aceita: FARE USD, FARE R USD, FARE F USD, EQUIV USD
+    const usdM=flat.match(/(?:FARE\s+[A-Z]?\s*USD|EQUIV\s+USD)\s+([\d\.]+)/i);
     const oldU=usdM?parseFloat(usdM[1]):null;
-    const pdRx=/PD\d+\s+BRL\s+([\d\.]+)([A-Z]{2,3})/g;
-    let m; const raw=[];
-    while((m=pdRx.exec(flat))!==null)raw.push({code:m[2],val:parseFloat(m[1])});
+    let m;
+    const rawMap={};
+
+    // Formato 1: PD01 BRL 105.76BR ou TX01 BRL 105.76BR (prefixo sequencial)
+    const pdRx=/(?:PD|TX)\d+\s+BRL\s+([\d\.]+)([A-Z]{2,3})/g;
+    while((m=pdRx.exec(flat))!==null){
+      rawMap[m[2]]=(rawMap[m[2]]||0)+parseFloat(m[1]);
+    }
+
+    // Formato 2: inline — BRL 105.76BR BRL 51.53QO (sem prefixo)
+    // Roda sempre — ignora posições já capturadas pelo Formato 1
+    const inlineRx=/BRL\s+([\d\.]+)([A-Z]{2,3})\b/g;
+    while((m=inlineRx.exec(flat))!==null){
+      const cod=m[2], val=parseFloat(m[1]);
+      // Exclui códigos de moeda e totais
+      if(cod==='USD'||cod==='BRL'||cod==='ADT'||cod==='NUC'||cod==='ROE')continue;
+      // Só adiciona se ainda não foi capturado pelo Formato 1
+      if(!(cod in rawMap)) rawMap[cod]=val;
+    }
+
+    const raw=Object.entries(rawMap).map(([code,val])=>({code,val}));
     let usN=0;
     const taxList=raw.map(p=>{if(p.code==='US'){usN++;return{code:'US'+usN,val:p.val};}return p;});
     return {oldUSD:oldU, taxes:taxList};
@@ -961,7 +980,7 @@ function ModuloReemissaoManual() {
       const novo=parseNovo(taNovo);
       const cred=parseCredito(taCred);
       if(!novo.newUSD){setParseMsg({text:'USD não encontrado no bloco do novo valor.',ok:false});return;}
-      if(!cred.oldUSD){setParseMsg({text:'FARE R USD não encontrado no bilhete de crédito.',ok:false});return;}
+      if(!cred.oldUSD){setParseMsg({text:'FARE USD não encontrado no bilhete de crédito. Verifique se contém FARE USD, FARE R USD ou EQUIV USD.',ok:false});return;}
       if(novo.taxes.length===0){setParseMsg({text:'Nenhuma taxa encontrada.',ok:false});return;}
       setNewUSD(novo.newUSD.toFixed(2));
       setOldUSD(cred.oldUSD.toFixed(2));
