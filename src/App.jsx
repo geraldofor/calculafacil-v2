@@ -1359,6 +1359,7 @@ function ConfiguracoesSistema() {
 // ============================================================
 function PainelAdmin({ onLogout }) {
   const [tab, setTab] = useState("Dashboard");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [users, setUsers] = useState([]);
   const [pagamentos, setPagamentos] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
@@ -1526,25 +1527,37 @@ function PainelAdmin({ onLogout }) {
       </header>
 
       <div className="flex">
-        <aside className="w-56 bg-white border-r border-gray-200 min-h-[calc(100vh-60px)] p-4">
-          <div className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3 px-3">Administração</div>
-          {menus.filter(m=>m.grupo==="admin").map(m=>(
-            <button key={m.id} onClick={()=>setTab(m.id)}
-              className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium mb-1 transition-all flex items-center gap-2 ${tab===m.id?"bg-blue-600 text-white shadow":"text-gray-600 hover:bg-gray-100"}`}>
-              <span>{m.icon}</span>{m.id}
-              {m.id==="Usuários"&&vencendoHoje>0&&<span className="ml-auto bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full">{vencendoHoje}</span>}
-            </button>
-          ))}
-          <div className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3 px-3 mt-5">Ferramentas</div>
-          {menus.filter(m=>m.grupo==="ferramentas").map(m=>(
-            <button key={m.id} onClick={()=>setTab(m.id)}
-              className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium mb-1 transition-all flex items-center gap-2 ${tab===m.id?"bg-green-600 text-white shadow":"text-gray-600 hover:bg-gray-100"}`}>
-              <span>{m.icon}</span>{m.id}
-            </button>
-          ))}
+        <aside className={`${sidebarOpen?"w-56":"w-14"} bg-white border-r border-gray-200 min-h-[calc(100vh-60px)] transition-all duration-200 flex flex-col`}>
+          {/* Toggle button */}
+          <button onClick={()=>setSidebarOpen(o=>!o)}
+            className="flex items-center justify-center h-10 w-full border-b border-gray-100 text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition-all"
+            title={sidebarOpen?"Recolher menu":"Expandir menu"}>
+            <span className="text-lg">{sidebarOpen?"◀":"▶"}</span>
+          </button>
+
+          <div className="flex-1 p-2 overflow-hidden">
+            {sidebarOpen&&<div className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2 px-2 mt-2">Administração</div>}
+            {menus.filter(m=>m.grupo==="admin").map(m=>(
+              <button key={m.id} onClick={()=>setTab(m.id)} title={m.id}
+                className={`w-full text-left px-2 py-2.5 rounded-xl text-sm font-medium mb-1 transition-all flex items-center gap-2 ${tab===m.id?"bg-blue-600 text-white shadow":"text-gray-600 hover:bg-gray-100"}`}>
+                <span className="text-base flex-shrink-0">{m.icon}</span>
+                {sidebarOpen&&<><span className="truncate">{m.id}</span>
+                {m.id==="Usuários"&&vencendoHoje>0&&<span className="ml-auto bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full flex-shrink-0">{vencendoHoje}</span>}</>}
+              </button>
+            ))}
+            {sidebarOpen&&<div className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2 px-2 mt-4">Ferramentas</div>}
+            {!sidebarOpen&&<div className="my-2 border-t border-gray-100"/>}
+            {menus.filter(m=>m.grupo==="ferramentas").map(m=>(
+              <button key={m.id} onClick={()=>setTab(m.id)} title={m.id}
+                className={`w-full text-left px-2 py-2.5 rounded-xl text-sm font-medium mb-1 transition-all flex items-center gap-2 ${tab===m.id?"bg-green-600 text-white shadow":"text-gray-600 hover:bg-gray-100"}`}>
+                <span className="text-base flex-shrink-0">{m.icon}</span>
+                {sidebarOpen&&<span className="truncate">{m.id}</span>}
+              </button>
+            ))}
+          </div>
         </aside>
 
-        <main className="flex-1 p-6 space-y-6">
+        <main className="flex-1 p-6 space-y-6 overflow-hidden">
           {tab==="Dashboard"&&(
             <>
               <h2 className="text-2xl font-black text-gray-900">Dashboard</h2>
@@ -1688,6 +1701,7 @@ function PainelAdmin({ onLogout }) {
 function Dashboard({ user, onLogout, onGoAdmin }) {
   const [modulo, setModulo] = useState("Tarifas");
   const [showPix, setShowPix] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const isAdmin = user.email && user.email.toLowerCase() === ADMIN_EMAIL;
   const isTrial = user.plan === "trial";
   const isPendingPro = user.plan === "pending_pro";
@@ -1720,42 +1734,50 @@ function Dashboard({ user, onLogout, onGoAdmin }) {
       </header>
 
       <div className="flex">
-        <aside className="w-48 bg-white border-r border-gray-100 min-h-[calc(100vh-52px)] p-4">
-          {menus.map(m => (
-            <button key={m} onClick={() => setModulo(m)}
-              className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium mb-1 transition-all ${modulo===m?"bg-blue-600 text-white":"text-gray-600 hover:bg-gray-100"}`}>
-              {m==="Tarifas"&&"🧮 "}{m==="Conversor"&&"✈️ "}{m==="Reemissão"&&"🔄 "}{m==="Reemissão Manual"&&"🔁 "}{m}
-            </button>
-          ))}
+        <aside className={`${sidebarOpen?"w-48":"w-14"} bg-white border-r border-gray-100 min-h-[calc(100vh-52px)] transition-all duration-200 flex flex-col`}>
+          {/* Toggle button */}
+          <button onClick={()=>setSidebarOpen(o=>!o)}
+            className="flex items-center justify-center h-9 w-full border-b border-gray-100 text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition-all"
+            title={sidebarOpen?"Recolher menu":"Expandir menu"}>
+            <span className="text-base">{sidebarOpen?"◀":"▶"}</span>
+          </button>
 
-          {isAdmin && (
-            <div className="mt-4 border-t border-gray-100 pt-4">
-              <button onClick={onGoAdmin}
-                className="w-full text-left px-3 py-2 rounded-lg text-sm font-bold mb-1 transition-all bg-purple-50 text-purple-700 hover:bg-purple-100 flex items-center gap-2">
-                🔐 Painel Admin
+          <div className="flex-1 p-2 overflow-hidden">
+            {menus.map(m => (
+              <button key={m} onClick={() => setModulo(m)} title={m}
+                className={`w-full text-left px-2 py-2 rounded-lg text-sm font-medium mb-1 transition-all flex items-center gap-2 ${modulo===m?"bg-blue-600 text-white":"text-gray-600 hover:bg-gray-100"}`}>
+                <span className="flex-shrink-0">
+                  {m==="Tarifas"&&"🧮"}{m==="Conversor"&&"✈️"}{m==="Reemissão"&&"🔄"}{m==="Reemissão Manual"&&"🔁"}
+                </span>
+                {sidebarOpen&&<span className="truncate">{m}</span>}
               </button>
-            </div>
-          )}
+            ))}
 
-          {(isTrial || isPendingPro) && (
-            <div className="mt-6 bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700">
-              {isPendingPro ? (
-                <>
-                  <div className="font-bold mb-1">⏳ Em análise</div>
-                  <div>Confirmaremos em até 24h.</div>
-                </>
-              ) : (
-                <>
-                  <div className="font-bold mb-1">Gostando? 🚀</div>
+            {isAdmin && (
+              <div className="mt-3 border-t border-gray-100 pt-3">
+                <button onClick={onGoAdmin} title="Painel Admin"
+                  className="w-full text-left px-2 py-2 rounded-lg text-sm font-bold mb-1 transition-all bg-purple-50 text-purple-700 hover:bg-purple-100 flex items-center gap-2">
+                  <span className="flex-shrink-0">🔐</span>
+                  {sidebarOpen&&<span className="truncate">Painel Admin</span>}
+                </button>
+              </div>
+            )}
+
+            {sidebarOpen && (isTrial || isPendingPro) && (
+              <div className="mt-4 bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700">
+                {isPendingPro ? (
+                  <><div className="font-bold mb-1">⏳ Em análise</div><div>Confirmaremos em até 24h.</div></>
+                ) : (
+                  <><div className="font-bold mb-1">Gostando? 🚀</div>
                   <div className="mb-2">Assine por R$ 49,99/mês</div>
                   <button onClick={() => setShowPix(true)}
                     className="block w-full py-1.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-all text-center">
                     ⭐ Assinar agora
-                  </button>
-                </>
-              )}
-            </div>
-          )}
+                  </button></>
+                )}
+              </div>
+            )}
+          </div>
         </aside>
 
         <main className="flex-1 p-6">
