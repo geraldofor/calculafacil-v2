@@ -1360,6 +1360,7 @@ function ConfiguracoesSistema() {
 function PainelAdmin({ onLogout }) {
   const [tab, setTab] = useState("Dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [userHistoricoId, setUserHistoricoId] = useState(null);
   const [users, setUsers] = useState([]);
   const [pagamentos, setPagamentos] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
@@ -1434,12 +1435,21 @@ function PainelAdmin({ onLogout }) {
     return{label:u.plan,color:"gray"};
   };
 
+  const hoje=new Date();
+  const inicioMes=new Date(hoje.getFullYear(),hoje.getMonth(),1);
   const totalReceita=pagamentos.filter(p=>p.status==="pago").reduce((a,p)=>a+(p.valor||0),0);
+  const receitaMes=pagamentos.filter(p=>p.status==="pago"&&new Date(p.created_at)>=inicioMes).reduce((a,p)=>a+(p.valor||0),0);
   const totalUsuarios=users.filter(u=>u.role!=="admin").length;
   const ativos=users.filter(u=>(u.plan==="individual"||u.plan==="empresarial")&&!u.blocked).length;
   const trials=users.filter(u=>u.plan==="trial"&&!u.blocked).length;
   const bloqueados=users.filter(u=>u.blocked).length;
   const vencendoHoje=users.filter(u=>u.plan==="trial"&&trialDaysLeft(u)<=1&&!u.blocked).length;
+  const vencendo7d=users.filter(u=>{
+    if(!u.paid_until||u.plan==="trial")return false;
+    const diff=(new Date(u.paid_until)-hoje)/(1000*60*60*24);
+    return diff>=0&&diff<=7&&!u.blocked;
+  });
+  const pagamentosDoUsuario=userHistoricoId?pagamentos.filter(p=>p.user_id===userHistoricoId):[];
 
   const menus = [
     {id:"Dashboard",icon:"📊",grupo:"admin"},{id:"Usuários",icon:"👥",grupo:"admin"},
@@ -1561,31 +1571,58 @@ function PainelAdmin({ onLogout }) {
           {tab==="Dashboard"&&(
             <>
               <h2 className="text-2xl font-black text-gray-900">Dashboard</h2>
+
+              {/* KPIs */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
-                  {label:"Receita do Mês",valor:`R$ ${totalReceita.toFixed(2)}`,cor:"text-green-600",bg:"bg-green-50 border-green-200",icon:"💰"},
-                  {label:"Assinantes Ativos",valor:ativos,cor:"text-blue-600",bg:"bg-blue-50 border-blue-200",icon:"✅"},
-                  {label:"Em Trial",valor:trials,cor:"text-yellow-600",bg:"bg-yellow-50 border-yellow-200",icon:"⏳"},
-                  {label:"Bloqueados",valor:bloqueados,cor:"text-red-500",bg:"bg-red-50 border-red-200",icon:"🔴"},
+                  {label:"Receita do Mês",valor:`R$ ${receitaMes.toFixed(2)}`,sub:`Total: R$ ${totalReceita.toFixed(2)}`,cor:"text-green-600",bg:"bg-green-50 border-green-200",icon:"💰"},
+                  {label:"Assinantes Ativos",valor:ativos,sub:`${totalUsuarios} cadastrados`,cor:"text-blue-600",bg:"bg-blue-50 border-blue-200",icon:"✅"},
+                  {label:"Em Trial",valor:trials,sub:vencendoHoje>0?`⚠️ ${vencendoHoje} vence hoje`:"",cor:"text-yellow-600",bg:"bg-yellow-50 border-yellow-200",icon:"⏳"},
+                  {label:"Bloqueados",valor:bloqueados,sub:"",cor:"text-red-500",bg:"bg-red-50 border-red-200",icon:"🔴"},
                 ].map(m=>(
                   <div key={m.label} className={`rounded-2xl border p-5 ${m.bg}`}>
                     <div className="text-2xl mb-1">{m.icon}</div>
                     <div className={`text-3xl font-black ${m.cor}`}>{m.valor}</div>
                     <div className="text-xs text-gray-500 mt-1">{m.label}</div>
+                    {m.sub&&<div className="text-xs text-gray-400 mt-0.5">{m.sub}</div>}
                   </div>
                 ))}
               </div>
+
+              {/* Alerta vencendo hoje */}
               {vencendoHoje>0&&(
                 <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
-                  <div className="font-bold text-red-700 mb-2">⚠️ Trials vencendo hoje ({vencendoHoje})</div>
+                  <div className="font-bold text-red-700 mb-2">🚨 Trials vencendo hoje ({vencendoHoje})</div>
                   {users.filter(u=>u.plan==="trial"&&trialDaysLeft(u)<=1&&!u.blocked).map(u=>(
-                    <div key={u.id} className="flex items-center justify-between py-1 border-b border-red-100 last:border-0">
-                      <div><span className="font-medium">{u.full_name}</span> <span className="text-sm text-gray-500">{u.email}</span></div>
+                    <div key={u.id} className="flex items-center justify-between py-1.5 border-b border-red-100 last:border-0">
+                      <div><span className="font-medium text-sm">{u.full_name}</span> <span className="text-xs text-gray-500">{u.email}</span></div>
                       <Button variant="success" className="text-xs py-1 px-2" onClick={()=>{setUserSelecionado(u);setShowAcaoModal(true);}}>Gerenciar</Button>
                     </div>
                   ))}
                 </div>
               )}
+
+              {/* Alerta vencendo em 7 dias */}
+              {vencendo7d.length>0&&(
+                <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4">
+                  <div className="font-bold text-orange-700 mb-2">⚠️ Assinantes vencendo em até 7 dias ({vencendo7d.length})</div>
+                  {vencendo7d.map(u=>{
+                    const dias=Math.ceil((new Date(u.paid_until)-hoje)/(1000*60*60*24));
+                    return(
+                      <div key={u.id} className="flex items-center justify-between py-1.5 border-b border-orange-100 last:border-0">
+                        <div>
+                          <span className="font-medium text-sm">{u.full_name}</span>
+                          <span className="text-xs text-gray-500 ml-2">{u.email}</span>
+                          <span className={`ml-2 text-xs font-bold ${dias<=2?"text-red-500":"text-orange-500"}`}>vence em {dias}d</span>
+                        </div>
+                        <Button variant="secondary" className="text-xs py-1 px-2" onClick={()=>{setUserSelecionado(u);setShowAcaoModal(true);}}>Renovar</Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Últimos pagamentos */}
               <Card>
                 <h3 className="font-bold text-gray-800 mb-4">📋 Últimos Pagamentos</h3>
                 {pagamentos.length===0?(
@@ -1593,8 +1630,11 @@ function PainelAdmin({ onLogout }) {
                 ):(
                   <table className="w-full text-sm">
                     <thead><tr className="text-xs text-gray-400 border-b">
-                      <th className="text-left py-2">Usuário</th><th className="text-left py-2">Valor</th>
-                      <th className="text-left py-2">Método</th><th className="text-left py-2">Data</th><th className="text-left py-2">Obs</th>
+                      <th className="text-left py-2">Usuário</th>
+                      <th className="text-left py-2">Valor</th>
+                      <th className="text-left py-2">Método</th>
+                      <th className="text-left py-2">Data</th>
+                      <th className="text-left py-2">Obs</th>
                     </tr></thead>
                     <tbody>{pagamentos.slice(0,10).map(p=>(
                       <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
@@ -1651,27 +1691,109 @@ function PainelAdmin({ onLogout }) {
           {tab==="Pagamentos"&&(
             <>
               <h2 className="text-2xl font-black text-gray-900">Controle Financeiro</h2>
-              <div className="grid grid-cols-2 gap-4">
-                <Card className="text-center bg-green-50 border-green-200">
-                  <div className="text-xs text-gray-400 mb-1">RECEITA TOTAL</div>
-                  <div className="text-3xl font-black text-green-600">R$ {totalReceita.toFixed(2)}</div>
+
+              {/* KPIs financeiros */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <Card className="bg-green-50 border-green-200">
+                  <div className="text-xs text-gray-400 mb-1">RECEITA DO MÊS</div>
+                  <div className="text-2xl font-black text-green-600">R$ {receitaMes.toFixed(2)}</div>
+                  <div className="text-xs text-gray-400 mt-1">{new Date().toLocaleDateString("pt-BR",{month:"long",year:"numeric"})}</div>
                 </Card>
-                <Card className="text-center bg-blue-50 border-blue-200">
-                  <div className="text-xs text-gray-400 mb-1">PAGAMENTOS REGISTRADOS</div>
-                  <div className="text-3xl font-black text-blue-600">{pagamentos.length}</div>
+                <Card className="bg-blue-50 border-blue-200">
+                  <div className="text-xs text-gray-400 mb-1">RECEITA TOTAL</div>
+                  <div className="text-2xl font-black text-blue-600">R$ {totalReceita.toFixed(2)}</div>
+                  <div className="text-xs text-gray-400 mt-1">acumulado</div>
+                </Card>
+                <Card className="bg-purple-50 border-purple-200">
+                  <div className="text-xs text-gray-400 mb-1">PAGAMENTOS</div>
+                  <div className="text-2xl font-black text-purple-600">{pagamentos.length}</div>
+                  <div className="text-xs text-gray-400 mt-1">registrados</div>
+                </Card>
+                <Card className="bg-orange-50 border-orange-200">
+                  <div className="text-xs text-gray-400 mb-1">TICKET MÉDIO</div>
+                  <div className="text-2xl font-black text-orange-600">R$ {pagamentos.length>0?(totalReceita/pagamentos.length).toFixed(2):"0,00"}</div>
+                  <div className="text-xs text-gray-400 mt-1">por pagamento</div>
                 </Card>
               </div>
+
+              {/* Histórico por usuário */}
               <Card>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-bold text-gray-800">👤 Histórico por Usuário</h3>
+                  {userHistoricoId&&<button onClick={()=>setUserHistoricoId(null)} className="text-xs text-gray-400 hover:text-gray-600">← Ver todos</button>}
+                </div>
+                {!userHistoricoId?(
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {users.filter(u=>u.role!=="admin").map(u=>{
+                      const total=pagamentos.filter(p=>p.user_id===u.id&&p.status==="pago").reduce((a,p)=>a+(p.valor||0),0);
+                      const qtd=pagamentos.filter(p=>p.user_id===u.id).length;
+                      return(
+                        <button key={u.id} onClick={()=>setUserHistoricoId(u.id)}
+                          className="text-left p-3 rounded-xl border border-gray-100 hover:border-blue-300 hover:bg-blue-50 transition-all">
+                          <div className="font-medium text-sm truncate">{u.full_name||"—"}</div>
+                          <div className="text-xs text-gray-400 truncate">{u.email}</div>
+                          <div className="mt-1 flex items-center justify-between">
+                            <span className="text-green-600 font-bold text-sm">R$ {total.toFixed(2)}</span>
+                            <span className="text-xs text-gray-400">{qtd} pag.</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ):(
+                  <>
+                    {pagamentosDoUsuario.length===0?(
+                      <div className="text-center text-gray-400 py-4 text-sm">Nenhum pagamento registrado para este usuário.</div>
+                    ):(
+                      <>
+                        <div className="bg-blue-50 rounded-xl p-3 mb-3 flex justify-between items-center">
+                          <div>
+                            <div className="font-bold text-gray-800">{pagamentos.find(p=>p.user_id===userHistoricoId)?.profiles?.full_name||"—"}</div>
+                            <div className="text-xs text-gray-500">{pagamentos.find(p=>p.user_id===userHistoricoId)?.profiles?.email}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-green-600 font-black text-lg">R$ {pagamentosDoUsuario.reduce((a,p)=>a+(p.valor||0),0).toFixed(2)}</div>
+                            <div className="text-xs text-gray-400">total pago</div>
+                          </div>
+                        </div>
+                        <table className="w-full text-sm">
+                          <thead><tr className="text-xs text-gray-400 border-b">
+                            <th className="text-left py-2">Data</th>
+                            <th className="text-left py-2">Valor</th>
+                            <th className="text-left py-2">Método</th>
+                            <th className="text-left py-2">Observação</th>
+                          </tr></thead>
+                          <tbody>{pagamentosDoUsuario.map(p=>(
+                            <tr key={p.id} className="border-b border-gray-50">
+                              <td className="py-2 text-gray-400">{new Date(p.created_at).toLocaleDateString("pt-BR")}</td>
+                              <td className="font-bold text-green-600">R$ {(p.valor||0).toFixed(2)}</td>
+                              <td>{p.metodo}</td>
+                              <td className="text-gray-500">{p.obs||"—"}</td>
+                            </tr>
+                          ))}</tbody>
+                        </table>
+                      </>
+                    )}
+                  </>
+                )}
+              </Card>
+
+              {/* Todos os pagamentos */}
+              <Card>
+                <h3 className="font-bold text-gray-800 mb-4">📋 Todos os Pagamentos</h3>
                 {pagamentos.length===0?(
                   <div className="text-center text-gray-400 py-8">Nenhum pagamento ainda.<br/><span className="text-sm">Use "Gerenciar" em um usuário para registrar pagamentos.</span></div>
                 ):(
                   <table className="w-full text-sm">
                     <thead><tr className="text-xs text-gray-400 border-b">
-                      <th className="text-left py-2">Data</th><th className="text-left py-2">Usuário</th>
-                      <th className="text-left py-2">Valor</th><th className="text-left py-2">Método</th><th className="text-left py-2">Observação</th>
+                      <th className="text-left py-2">Data</th>
+                      <th className="text-left py-2">Usuário</th>
+                      <th className="text-left py-2">Valor</th>
+                      <th className="text-left py-2">Método</th>
+                      <th className="text-left py-2">Observação</th>
                     </tr></thead>
                     <tbody>{pagamentos.map(p=>(
-                      <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
+                      <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={()=>setUserHistoricoId(p.user_id)}>
                         <td className="py-2 text-gray-400">{new Date(p.created_at).toLocaleDateString("pt-BR")}</td>
                         <td><div className="font-medium">{p.profiles?.full_name||"—"}</div><div className="text-xs text-gray-400">{p.profiles?.email}</div></td>
                         <td className="font-bold text-green-600">R$ {(p.valor||0).toFixed(2)}</td>
