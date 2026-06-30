@@ -435,6 +435,7 @@ function AuthPage({ mode="login", onAuth, onSwitch, onBack }) {
 function ModuloTarifas() {
   const [gds, setGds] = useState("AMADEUS");
   const [cotacao, setCotacao] = useState("");
+  const [roteiro, setRoteiro] = useState("");
   const [voo, setVoo] = useState("");
   const [cabine, setCabine] = useState("");
   const [bagagem, setBagagem] = useState("");
@@ -447,6 +448,66 @@ function ModuloTarifas() {
   const [markupPct, setMarkupPct] = useState("10");
   const [resultado, setResultado] = useState(null);
   const [copied, setCopied] = useState(false);
+
+  const decodeItinerary = (text) => {
+    if (!text) return null;
+    const lines = text.toUpperCase().split('\n');
+    const flights = [];
+
+    lines.forEach((line) => {
+      if (!line.trim()) return;
+
+      // Clean up prefix like "2. " or "2 " or "  2.  "
+      const cleanedLine = line.replace(/^\s*\d+\.?\s+/, '').trim();
+
+      // Regex for GDS flight lines
+      const match = cleanedLine.match(
+        /^([A-Z0-9]{2})\s*(\d{1,5})\s*([A-Z])?\s+(\d{2}[A-Z]{3})\s*[1-7]?[\*]?\s*([A-Z]{3})([A-Z]{3})\s+([A-Z]{2}\d?)\s+[^0-9]*(\d{4})\s+[^0-9]*(\d{4})/
+      );
+
+      if (match) {
+        const cia = AIRLINES[match[1]] || match[1];
+        const orgCode = match[5];
+        const dstCode = match[6];
+        const org = AIRPORTS[orgCode] ? `${AIRPORTS[orgCode]} (${orgCode})` : `${orgCode} (${orgCode})`;
+        const dst = AIRPORTS[dstCode] ? `${AIRPORTS[dstCode]} (${dstCode})` : `${dstCode} (${dstCode})`;
+        const dep = `${match[8].slice(0, 2)}:${match[8].slice(2)}`;
+        const arr = `${match[9].slice(0, 2)}:${match[9].slice(2)}`;
+        const date = match[4];
+
+        flights.push({
+          ciaCode: match[1],
+          cia,
+          numero: match[2],
+          data: date,
+          origem: org,
+          destino: dst,
+          partida: dep,
+          chegada: arr,
+        });
+      }
+    });
+
+    if (flights.length === 0) return null;
+
+    let maxOrigem = 0;
+    let maxDestino = 0;
+    flights.forEach((f) => {
+      if (f.origem.length > maxOrigem) maxOrigem = f.origem.length;
+      if (f.destino.length > maxDestino) maxDestino = f.destino.length;
+    });
+    maxOrigem += 2;
+    maxDestino += 2;
+
+    let res = '';
+    flights.forEach((f) => {
+      const orgFormatted = f.origem.padEnd(maxOrigem, ' ');
+      const dstFormatted = f.destino.padEnd(maxDestino, ' ');
+      res += `${f.cia} ${f.numero} ➔ ${f.data} ➔ ${orgFormatted}${f.partida} ➔ ${dstFormatted}${f.chegada}\n`;
+    });
+
+    return { res, firstCia: flights[0]?.ciaCode || '' };
+  };
 
   const parseCotacao = (text, gdsType) => {
     const raw = text.toUpperCase();
@@ -506,30 +567,62 @@ function ModuloTarifas() {
     const ravVal=totalBRL*(parseFloat(rav)/100);
     const feeVal=parseFloat(fee)||0;
     const totalFinal=totalBRL+ravVal+feeVal;
+
+    // Auto-fill Cia/Voo from decoded roteiro if empty or Tap
+    if (roteiro.trim()) {
+      const decoded = decodeItinerary(roteiro);
+      if (decoded && decoded.firstCia && (!voo || voo === 'Tap' || voo === '')) {
+        setVoo(decoded.firstCia);
+      }
+    }
+
     setResultado({p,tUSD,tBRL,totalBRL,ravVal,feeVal,totalFinal,tUSDOriginal,tBRLOriginal,totalBRLOriginal,comMarkup});
   };
 
-  const fmtBRL=(v)=>'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
   const formatOutput=()=>{
     if(!resultado)return"";
     const{p,tUSD,tBRL,totalBRL,ravVal,feeVal,totalFinal,tUSDOriginal,tBRLOriginal,comMarkup}=resultado;
-    const cab=cabine||p.fareFamily||"-";
-    const comp=voo||"-";
-    const bag=bagagem||"-";
-    const rate=p.exchangeRate?`1 USD = R$ ${p.exchangeRate.toFixed(4)}`:"-";
-    const sep="─".repeat(46);
+    const cab = cabine || p.fareFamily || "-";
+    const comp = voo || "-";
+    const bag = bagagem || "-";
+    const rate = p.exchangeRate ? `1 USD = R$ ${p.exchangeRate.toFixed(4)}` : "-";
+    const sep = "─".repeat(40);
 
-    // ── OUTPUT PARA O CLIENTE ──
-    let out=`Cia/Voo: ${comp}\nCabine: ${cab}\nBagagem: ${bag}\n${sep}\n`;
-    out+=`Tarifa USD:           USD ${tUSD.toFixed(2).padStart(10)}\n`;
-    out+=`Tarifa BRL:           ${fmtBRL(tBRL).padStart(18)}\n`;
-    out+=`Taxas:                ${fmtBRL(totalBRL-tBRL).padStart(18)}\n`;
-    out+=`RAV (${rav}%):            ${fmtBRL(ravVal).padStart(18)}\n`;
-    out+=`FEE:                  ${fmtBRL(feeVal).padStart(18)}\n`;
-    out+=`${sep}\n`;
-    out+=`TOTAL FINAL:          ${fmtBRL(totalFinal).padStart(18)}\n`;
-    out+=`${sep}\n`;
-    out+=`Pagamento: ${parcelas}\n`;
+    // Processar Roteiro
+    let roteiroHeader = '';
+    if (roteiro.trim()) {
+      const decoded = decodeItinerary(roteiro);
+      if (decoded && decoded.res) {
+        roteiroHeader = `Roteiro:\n${decoded.res}\n`;
+      } else {
+        roteiroHeader = `Roteiro:   ${roteiro}\n`;
+      }
+    }
+
+    const formatMetaLine = (label, value) => {
+      return `${label.padEnd(10, ' ')} ${value}`;
+    };
+
+    let out = roteiroHeader;
+    out += formatMetaLine('Cia/Voo:', comp) + '\n';
+    out += formatMetaLine('Cabine:', cab) + '\n';
+    out += formatMetaLine('Bagagem:', bag) + '\n';
+    out += `${sep}\n`;
+
+    const formatValueLine = (label, currency, val) => {
+      return `${label.padEnd(24, ' ')} ${currency} ${val.toFixed(2).padStart(12, ' ')}`;
+    };
+
+    out += formatValueLine('Tarifa Base (USD):', 'USD', tUSDOriginal) + '\n';
+    out += formatValueLine('Tarifa BRL:', 'BRL', tBRL) + '\n';
+    out += formatValueLine('Taxas:', 'BRL', totalBRL - tBRL) + '\n';
+    out += formatValueLine('Total Parcial:', 'BRL', totalBRL) + '\n';
+    out += formatValueLine(`RAV (${rav}%):`, 'BRL', ravVal) + '\n';
+    out += formatValueLine('FEE:', 'BRL', feeVal) + '\n';
+    out += `${sep}\n`;
+    out += formatValueLine('TOTAL FINAL:', 'BRL', totalFinal) + '\n';
+    out += `${sep}\n`;
+    out += `Pagamento: ${parcelas}\n`;
     if(multaRem||multaReemb){
       out+=`\n[ REGRAS E PENALIDADES ]\n`;
       if(multaRem&&multaRem!=="N/A")out+=`Reemissão: USD ${multaRem}\n`;
@@ -539,24 +632,24 @@ function ModuloTarifas() {
     // ── CONFERÊNCIA (não enviar) ──
     out+=`\n${sep}\n--- CONFERÊNCIA (não enviar) ---\n${sep}\n`;
     if(comMarkup){
-      out+=`Tarifa base USD:      USD ${tUSDOriginal.toFixed(2).padStart(10)}\n`;
-      out+=`Markup (${markupPct}%):         USD ${(tUSD-tUSDOriginal).toFixed(2).padStart(10)}\n`;
-      out+=`Tarifa c/ markup:     USD ${tUSD.toFixed(2).padStart(10)}\n`;
-      out+=`Tarifa BRL c/ markup: ${fmtBRL(tBRL).padStart(18)}\n`;
+      out += formatValueLine('Tarifa base USD (orig):', 'USD', tUSDOriginal) + '\n';
+      out += formatValueLine(`Markup (${markupPct}%):`, 'USD', tUSD-tUSDOriginal) + '\n';
+      out += formatValueLine('Tarifa c/ markup:', 'USD', tUSD) + '\n';
+      out += formatValueLine('Tarifa BRL c/ markup:', 'BRL', tBRL) + '\n';
     } else {
-      out+=`Tarifa USD:           USD ${tUSD.toFixed(2).padStart(10)}\n`;
-      out+=`Tarifa BRL:           ${fmtBRL(tBRL).padStart(18)}\n`;
+      out += formatValueLine('Tarifa USD:', 'USD', tUSD) + '\n';
+      out += formatValueLine('Tarifa BRL:', 'BRL', tBRL) + '\n';
     }
-    out+=`Taxas:                ${fmtBRL(totalBRL-tBRL).padStart(18)}\n`;
-    out+=`Total parcial:        ${fmtBRL(totalBRL).padStart(18)}\n`;
-    out+=`RAV (${rav}%):            ${fmtBRL(ravVal).padStart(18)}\n`;
-    out+=`FEE:                  ${fmtBRL(feeVal).padStart(18)}\n`;
-    out+=`Câmbio: ${rate}`;
+    out += formatValueLine('Taxas:', 'BRL', totalBRL-tBRL) + '\n';
+    out += formatValueLine('Total parcial:', 'BRL', totalBRL) + '\n';
+    out += formatValueLine(`RAV (${rav}%):`, 'BRL', ravVal) + '\n';
+    out += formatValueLine('FEE:', 'BRL', feeVal) + '\n';
+    out += `Câmbio: ${rate}`;
     return out;
   };
 
   const copiar=()=>{navigator.clipboard.writeText(formatOutput());setCopied(true);setTimeout(()=>setCopied(false),2000);};
-  const limpar=()=>{setCotacao("");setResultado(null);setVoo("");setCabine("");setBagagem("");setMultaRem("");setMultaReemb("");};
+  const limpar=()=>{setCotacao("");setRoteiro("");setResultado(null);setVoo("");setCabine("");setBagagem("");setMultaRem("");setMultaReemb("");};
   const p=cotacao?parseCotacao(cotacao,gds):null;
   const temDados=p&&(p.tUSD>0||p.totalBRL>0);
 
@@ -566,6 +659,10 @@ function ModuloTarifas() {
         <h2 className="text-2xl font-black text-gray-900">Cálculo de Tarifas</h2>
         <Tab tabs={["AMADEUS","GALILEO","SABRE"]} active={gds} onChange={setGds} />
       </div>
+      <Card>
+        <Textarea label="Roteiro / Linhas de Voo (GDS ou texto simples)" value={roteiro} onChange={e=>setRoteiro(e.target.value)} rows={3}
+          placeholder="Cole as linhas de voo do GDS ou digite o roteiro simples (Ex: GRU/MIA/GRU)..." />
+      </Card>
       <Card>
         <Textarea label="Cole a cotação GDS aqui" value={cotacao} onChange={e=>setCotacao(e.target.value)} rows={7}
           placeholder={gds==="AMADEUS"?"USD 1857.00  26MAY26FOR IB X/MAD...\nBRL  9804.96  14.00 297.00...\nBRL 10139.24\nRATE USED 1USD=5.28BRL\nFARE FAMILY:FC1:1-2:COMFORT":gds==="GALILEO"?"FQG 1 BRL 1234.56 334.28 1568.84\nBSR 1USD-5.28":"USD 1234.56\nBRL 6521.67\nBRL 6856.84 ADT"} />
