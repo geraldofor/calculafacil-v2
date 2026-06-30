@@ -449,89 +449,156 @@ function ModuloTarifas() {
   const [resultado, setResultado] = useState(null);
   const [copied, setCopied] = useState(false);
 
-  const decodeItinerary = (text) => {
-    if (!text) return null;
+  // 1. Parser de segmentos de voo a partir da tela do TST
+  const parseSegments = (text) => {
     const lines = text.toUpperCase().split('\n');
-    const flights = [];
+    const segments = [];
+    let currentOrigin = '';
 
     lines.forEach((line) => {
-      if (!line.trim()) return;
+      const trimmed = line.trim();
+      if (!trimmed) return;
 
-      // Clean up prefix like "2. " or "2 " or "  2.  "
-      const cleanedLine = line.replace(/^\s*\d+\.?\s+/, '').trim();
-
-      // Regex for GDS flight lines
-      const match = cleanedLine.match(
-        /^([A-Z0-9]{2})\s*(\d{1,5})\s*([A-Z])?\s+(\d{2}[A-Z]{3})\s*[1-7]?[\*]?\s*([A-Z]{3})([A-Z]{3})\s+([A-Z]{2}\d?)\s+[^0-9]*(\d{4})\s+[^0-9]*(\d{4})/
+      // Regex para ler linhas de voo do TST
+      // Ex: XPAR AF   415 C  C 08OCT 1955  CRSCO1KA           08OCT08OCT 2P
+      const match = line.match(
+        /^\s*(X)?([A-Z]{3})\s+([A-Z0-9]{2})\s*(\d{1,4})\s+([A-Z])\s+[A-Z0-9]\s+(\d{2}[A-Z]{3})\s+(\d{4})\s+([A-Z0-9]{3,15})\s+\d{2}[A-Z]{3}\d{2}[A-Z]{3}\s+([A-Z0-9]+)/
       );
 
       if (match) {
-        const cia = AIRLINES[match[1]] || match[1];
-        const orgCode = match[5];
-        const dstCode = match[6];
-        const org = AIRPORTS[orgCode] ? `${AIRPORTS[orgCode]} (${orgCode})` : `${orgCode} (${orgCode})`;
-        const dst = AIRPORTS[dstCode] ? `${AIRPORTS[dstCode]} (${dstCode})` : `${dstCode} (${dstCode})`;
-        const dep = `${match[8].slice(0, 2)}:${match[8].slice(2)}`;
-        const arr = `${match[9].slice(0, 2)}:${match[9].slice(2)}`;
-        const date = match[4];
+        const dest = match[2];
+        const al = match[3];
+        const flightNum = match[4];
+        const bk = match[5];
+        const date = match[6];
+        const time = match[7];
+        const fareBasis = match[8];
+        const bg = match[9];
 
-        flights.push({
-          ciaCode: match[1],
-          cia,
-          numero: match[2],
-          data: date,
-          origem: org,
-          destino: dst,
-          partida: dep,
-          chegada: arr,
+        segments.push({
+          origin: currentOrigin,
+          dest,
+          al,
+          flightNum,
+          bk,
+          date,
+          time,
+          fareBasis,
+          bg
         });
+        currentOrigin = dest;
+      } else {
+        // Captura aeroporto inicial ou conexões isoladas (ex: " FOR")
+        const airportMatch = trimmed.match(/^([A-Z]{3})(?:\s+S\s*U\s*R\s*F\s*A\s*C\s*E)?$/);
+        if (airportMatch) {
+          currentOrigin = airportMatch[1];
+        }
       }
     });
 
-    if (flights.length === 0) return null;
+    return segments;
+  };
 
-    let maxOrigem = 0;
-    let maxDestino = 0;
-    flights.forEach((f) => {
-      if (f.origem.length > maxOrigem) maxOrigem = f.origem.length;
-      if (f.destino.length > maxDestino) maxDestino = f.destino.length;
+  // 2. Parser de Famílias Tarifárias (FF)
+  const parseFareFamilies = (text) => {
+    const families = {};
+    const lines = text.toUpperCase().split('\n');
+    lines.forEach((line) => {
+      if (line.trim().startsWith('FF ')) {
+        const matches = line.matchAll(/(\d+)\.([^-]+)-([A-Z0-9]{2})/g);
+        for (const m of matches) {
+          const index = parseInt(m[1]);
+          const name = m[2].trim();
+          families[index] = name;
+        }
+      }
     });
-    maxOrigem += 2;
-    maxDestino += 2;
+    return families;
+  };
 
-    let res = '';
-    flights.forEach((f) => {
-      const orgFormatted = f.origem.padEnd(maxOrigem, ' ');
-      const dstFormatted = f.destino.padEnd(maxDestino, ' ');
-      res += `${f.cia} ${f.numero} ➔ ${f.data} ➔ ${orgFormatted}${f.partida} ➔ ${dstFormatted}${f.chegada}\n`;
-    });
+  // 3. Tradução IATA e regras de Bagagem por Cabine (BK) + Franquia (BG)
+  const translateBaggage = (bg, bk) => {
+    const normBg = bg.trim().toUpperCase();
+    const normBk = bk.trim().toUpperCase();
 
-    return { res, firstCia: flights[0]?.ciaCode || '' };
+    if (normBg === '0P' || normBg === 'NOBAG' || normBg === 'NIL') {
+      return 'Sem bagagem despachada';
+    }
+
+    const match = normBg.match(/^(\d+)\s*(P|PC)?$/);
+    if (match) {
+      const qty = parseInt(match[1]);
+      const isExecOrFirst = ['F', 'A', 'J', 'C', 'D', 'I', 'Z'].includes(normBk);
+
+      let weight = '23kg';
+      if (isExecOrFirst) {
+        weight = '32kg';
+      }
+
+      const malaStr = qty === 1 ? 'mala' : 'malas';
+      return `${qty.toString().padStart(2, '0')} ${malaStr} de até ${weight}`;
+    }
+
+    return normBg;
   };
 
   const parseCotacao = (text, gdsType) => {
     const raw = text.toUpperCase();
     let tUSD=0,tBRL=0,totalBRL=0,exchangeRate=0,fareFamily="";
+    
     if(gdsType==="AMADEUS"){
+      // Captura do USD
       const usdM=raw.match(/^USD\s+([\d,\.]+)/m);
       tUSD=usdM?parseFloat(usdM[1].replace(",",".")):0;
       if(!tUSD){const usdAny=raw.match(/\bUSD\s+([\d,\.]+)/);tUSD=usdAny?parseFloat(usdAny[1].replace(",",".")):0;}
       if(!tUSD){const nucM=raw.match(/NUC\s*([\d,\.]+)/i);tUSD=nucM?parseFloat(nucM[1].replace(",",".")):0;}
-      const allBrlLines=[...raw.matchAll(/^BRL\s+([\d,\.]+)(.*)/gm)];
-      const totalLines=allBrlLines.filter(m=>m[2].trim()==="");
-      if(totalLines.length>0)totalBRL=parseFloat(totalLines[totalLines.length-1][1].replace(",","."));
-      const tarifaLine=allBrlLines.find(m=>m[2].trim()!==""&&!m[2].trim().startsWith("-"));
-      if(tarifaLine)tBRL=parseFloat(tarifaLine[1].replace(",","."));
-      if(!tBRL&&totalBRL>0&&tUSD>0){
-        const rateM2=raw.match(/RATE\s+USED\s+1\s*USD\s*[=:]\s*([\d,\.]+)\s*BRL/i);
-        const rate2=rateM2?parseFloat(rateM2[1].replace(",",".")):0;
-        if(rate2>0)tBRL=tUSD*rate2;
+      
+      // Captura das linhas BRL no início de cada linha (exclui taxas intermediárias)
+      const allBrlLines = [...raw.matchAll(/^\s*BRL\s+([\d,\.\s]+)/gm)].map(m => parseFloat(m[1].replace(/\s+/g, '').replace(',', '.')));
+      if (allBrlLines.length > 0) {
+        tBRL = allBrlLines[0];
+        totalBRL = allBrlLines[allBrlLines.length - 1];
       }
+      
       const rateM=raw.match(/RATE\s+USED\s+1\s*USD\s*[=:]\s*([\d,\.]+)\s*BRL/i);
       if(rateM)exchangeRate=parseFloat(rateM[1].replace(",","."));
       if(!exchangeRate&&tUSD>0&&tBRL>0)exchangeRate=tBRL/tUSD;
-      const famM=raw.match(/FARE\s+FAMILY\s*:\s*\w+\s*:\s*[\d\-]+\s*:\s*(\w+)/i);
-      if(famM)fareFamily=famM[1];
+      
+      // Detecção inteligente do TST
+      const segments = parseSegments(raw);
+      if (segments.length > 0) {
+        const families = parseFareFamilies(raw);
+        
+        // Determina Franquia de Bagagem Combinada ou Unificada
+        const uniqueBags = [...new Set(segments.map(s => translateBaggage(s.bg, s.bk)))];
+        let bagStr = '';
+        if (uniqueBags.length === 1) {
+          bagStr = uniqueBags[0];
+        } else {
+          bagStr = segments.map(s => `${s.origin}/${s.dest}: ${translateBaggage(s.bg, s.bk)}`).join(' | ');
+        }
+
+        const firstSegment = segments[0];
+        const firstCiaCode = firstSegment ? firstSegment.al : '';
+        const familyName = families[1] || '';
+
+        // Formatação Dinâmica do Roteiro
+        let rotStr = '';
+        segments.forEach((s) => {
+          const orgName = AIRPORTS[s.origin] || s.origin;
+          const destName = AIRPORTS[s.dest] || s.dest;
+          const ciaName = AIRLINES[s.al] || s.al;
+          rotStr += `${ciaName} ${s.flightNum} ➔ ${s.date} ➔ ${orgName} (${s.origin}) ${s.time} ➔ ${destName} (${s.dest})\n`;
+        });
+
+        // Atualização automática dos inputs no estado
+        setTimeout(() => {
+          if (firstCiaCode) setVoo(firstCiaCode);
+          if (familyName) setCabine(`${familyName} (Executiva)`);
+          if (bagStr) setBagagem(bagStr);
+          if (rotStr) setRoteiro(rotStr.trim());
+        }, 50);
+      }
     } else if(gdsType==="GALILEO"){
       const galM=raw.match(/FQG\s*\d+\s+BRL\s+([\d\.]+)\s+([\d\.]+)\s+([\d\.]+)/i);
       if(galM){tBRL=parseFloat(galM[1]);totalBRL=parseFloat(galM[3]);}
@@ -568,14 +635,6 @@ function ModuloTarifas() {
     const feeVal=parseFloat(fee)||0;
     const totalFinal=totalBRL+ravVal+feeVal;
 
-    // Auto-fill Cia/Voo from decoded roteiro if empty or Tap
-    if (roteiro.trim()) {
-      const decoded = decodeItinerary(roteiro);
-      if (decoded && decoded.firstCia && (!voo || voo === 'Tap' || voo === '')) {
-        setVoo(decoded.firstCia);
-      }
-    }
-
     setResultado({p,tUSD,tBRL,totalBRL,ravVal,feeVal,totalFinal,tUSDOriginal,tBRLOriginal,totalBRLOriginal,comMarkup});
   };
 
@@ -591,12 +650,7 @@ function ModuloTarifas() {
     // Processar Roteiro
     let roteiroHeader = '';
     if (roteiro.trim()) {
-      const decoded = decodeItinerary(roteiro);
-      if (decoded && decoded.res) {
-        roteiroHeader = `Roteiro:\n${decoded.res}\n`;
-      } else {
-        roteiroHeader = `Roteiro:   ${roteiro}\n`;
-      }
+      roteiroHeader = `Roteiro:\n${roteiro}\n`;
     }
 
     const formatMetaLine = (label, value) => {
