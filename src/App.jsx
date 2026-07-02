@@ -459,10 +459,12 @@ function ModuloTarifas() {
       const trimmed = line.trim();
       if (!trimmed) return;
 
-      // Regex para ler linhas de voo do TST
-      // Ex: XPAR AF   415 C  C 08OCT 1955  CRSCO1KA           08OCT08OCT 2P
+      // Regex para ler linhas de voo do TST (datas NVB/NVA opcionais, status com asteriscos)
+      // Ex: XRIO AA  7661 V  V 23DEC 1700  LNX8AHP1                       2P
+      // Ex: XWAS AA  3724 H  H 28DEC 0615  GNWZNHP1           25DEC       2P
+      // Ex:  MAD AF  1600 L  *L 12MAY 1320  QRLCO1LA           12MAY12MAY 0P
       const match = line.match(
-        /^\s*(X)?([A-Z]{3})\s+([A-Z0-9]{2})\s*(\d{1,4})\s+([A-Z])\s+[A-Z0-9]\s+(\d{2}[A-Z]{3})\s+(\d{4})\s+([A-Z0-9]{3,15})\s+\d{2}[A-Z]{3}\d{2}[A-Z]{3}\s+([A-Z0-9]+)/
+        /^\s*(X)?([A-Z]{3})\s+([A-Z0-9]{2})\s*(\d{1,4})\s+([A-Z])\s+([A-Z0-9\*]{1,3})?\s*(\d{2}[A-Z]{3})\s+(\d{4})\s+([A-Z0-9]{3,15}).*\s+([A-Z0-9]+)$/
       );
 
       if (match) {
@@ -470,10 +472,10 @@ function ModuloTarifas() {
         const al = match[3];
         const flightNum = match[4];
         const bk = match[5];
-        const date = match[6];
-        const time = match[7];
-        const fareBasis = match[8];
-        const bg = match[9];
+        const date = match[7];
+        const time = match[8];
+        const fareBasis = match[9];
+        const bg = match[10];
 
         segments.push({
           origin: currentOrigin,
@@ -504,12 +506,25 @@ function ModuloTarifas() {
     const families = {};
     const lines = text.toUpperCase().split('\n');
     lines.forEach((line) => {
-      if (line.trim().startsWith('FF ')) {
-        const matches = line.matchAll(/(\d+)\.([^-]+)-([A-Z0-9]{2})/g);
+      // Suporta "FF " ou "FARE FAMILY:"
+      const trimmed = line.trim();
+      if (trimmed.startsWith('FF ')) {
+        const matches = trimmed.matchAll(/(\d+)\.([^-]+)-([A-Z0-9]{2})/g);
         for (const m of matches) {
           const index = parseInt(m[1]);
           const name = m[2].trim();
           families[index] = name;
+        }
+      } else if (trimmed.startsWith('FARE FAMILY:')) {
+        // Ex: FARE FAMILY:FC1:1-3:PEC
+        const match = trimmed.match(/FARE\s+FAMILY:\w+:(\d+)-(\d+):(\w+)/i);
+        if (match) {
+          const startIdx = parseInt(match[1]);
+          const endIdx = parseInt(match[2]);
+          const name = match[3].trim();
+          for (let i = startIdx; i <= endIdx; i++) {
+            families[i] = name;
+          }
         }
       }
     });
@@ -553,8 +568,8 @@ function ModuloTarifas() {
       if(!tUSD){const usdAny=raw.match(/\bUSD\s+([\d,\.]+)/);tUSD=usdAny?parseFloat(usdAny[1].replace(",",".")):0;}
       if(!tUSD){const nucM=raw.match(/NUC\s*([\d,\.]+)/i);tUSD=nucM?parseFloat(nucM[1].replace(",",".")):0;}
       
-      // Captura das linhas BRL no início de cada linha (exclui taxas intermediárias)
-      const allBrlLines = [...raw.matchAll(/^\s*BRL\s+([\d,\.\s]+)/gm)].map(m => parseFloat(m[1].replace(/\s+/g, '').replace(',', '.')));
+      // Captura das linhas BRL no início de cada linha (exclui taxas intermediárias e texto à direita)
+      const allBrlLines = [...raw.matchAll(/^\s*BRL\s+([\d\.,]+)/gim)].map(m => parseFloat(m[1].replace(',', '.')));
       if (allBrlLines.length > 0) {
         tBRL = allBrlLines[0];
         totalBRL = allBrlLines[allBrlLines.length - 1];
@@ -578,23 +593,43 @@ function ModuloTarifas() {
           bagStr = segments.map(s => `${s.origin}/${s.dest}: ${translateBaggage(s.bg, s.bk)}`).join(' | ');
         }
 
-        const firstSegment = segments[0];
-        const firstCiaCode = firstSegment ? firstSegment.al : '';
-        const familyName = families[1] || '';
+        // Determina Cabines/Famílias Tarifárias combinadas ou únicas
+        const uniqueFamilies = [...new Set(Object.values(families))];
+        let familyStr = '';
+        if (uniqueFamilies.length === 1) {
+          familyStr = uniqueFamilies[0];
+        } else if (uniqueFamilies.length > 1) {
+          familyStr = uniqueFamilies.join(' // ');
+        }
 
-        // Formatação Dinâmica do Roteiro
+        // Captura do VC (Validating Carrier)
+        const vcMatch = raw.match(/VC-([A-Z0-9]{2})/);
+        const validatingCarrier = vcMatch ? vcMatch[1] : '';
+
+        const firstSegment = segments[0];
+        const firstCiaCode = validatingCarrier || (firstSegment ? firstSegment.al : '');
+
+        // Formatação Dinâmica do Roteiro (com suporte a SURFACE terrestre)
         let rotStr = '';
-        segments.forEach((s) => {
+        segments.forEach((s, idx) => {
           const orgName = AIRPORTS[s.origin] || s.origin;
           const destName = AIRPORTS[s.dest] || s.dest;
           const ciaName = AIRLINES[s.al] || s.al;
           rotStr += `${ciaName} ${s.flightNum} ➔ ${s.date} ➔ ${orgName} (${s.origin}) ${s.time} ➔ ${destName} (${s.dest})\n`;
+
+          // Detecta Surface (trecho terrestre)
+          const nextSegment = segments[idx + 1];
+          if (nextSegment && s.dest !== nextSegment.origin) {
+            const surfaceOrgName = AIRPORTS[s.dest] || s.dest;
+            const surfaceDestName = AIRPORTS[nextSegment.origin] || nextSegment.origin;
+            rotStr += `➔ TERRESTRE (SURFACE) ➔ ${surfaceOrgName} (${s.dest}) ➔ ${surfaceDestName} (${nextSegment.origin})\n`;
+          }
         });
 
         // Atualização automática dos inputs no estado
         setTimeout(() => {
           if (firstCiaCode) setVoo(firstCiaCode);
-          if (familyName) setCabine(`${familyName} (Executiva)`);
+          if (familyStr) setCabine(familyStr);
           if (bagStr) setBagagem(bagStr);
           if (rotStr) setRoteiro(rotStr.trim());
         }, 50);
@@ -1506,6 +1541,137 @@ function ConfiguracoesSistema() {
 }
 
 // ============================================================
+// MÓDULO: GERENCIAMENTO DE AEROPORTOS (ADMIN)
+// ============================================================
+function ModuloAeroportosAdmin() {
+  const [aeroportos, setAeroportos] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [code, setCode] = useState("");
+  const [name, setName] = useState("");
+  const [editingCode, setEditingCode] = useState(null);
+  const [search, setSearch] = useState("");
+  const [msg, setMsg] = useState("");
+
+  const carregarAeroportos = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("aeroportos")
+      .select("*")
+      .order("code", { ascending: true });
+    if (data) setAeroportos(data);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    carregarAeroportos();
+  }, []);
+
+  const salvar = async () => {
+    if (!code || !name) return;
+    const cleanCode = code.toUpperCase().trim();
+    const cleanName = name.trim();
+
+    setMsg("");
+    const { error } = await supabase
+      .from("aeroportos")
+      .upsert({ code: cleanCode, name: cleanName });
+
+    if (error) {
+      setMsg("❌ Erro ao salvar: " + error.message);
+    } else {
+      setMsg("✅ Salvo com sucesso!");
+      setCode("");
+      setName("");
+      setEditingCode(null);
+      carregarAeroportos();
+    }
+  };
+
+  const deletar = async (airportCode) => {
+    if (!confirm("Tem certeza que deseja excluir o aeroporto " + airportCode + "?")) return;
+    const { error } = await supabase
+      .from("aeroportos")
+      .delete()
+      .eq("code", airportCode);
+    if (error) {
+      setMsg("❌ Erro ao deletar: " + error.message);
+    } else {
+      setMsg("✅ Excluído!");
+      carregarAeroportos();
+    }
+  };
+
+  const edit = (a) => {
+    setCode(a.code);
+    setName(a.name);
+    setEditingCode(a.code);
+  };
+
+  const filtered = aeroportos.filter(a =>
+    a.code.toLowerCase().includes(search.toLowerCase()) ||
+    a.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-black text-gray-900">Gerenciamento de Aeroportos</h2>
+        <input type="text" placeholder="Buscar..." value={search} onChange={e=>setSearch(e.target.value)}
+          className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64" />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card className="md:col-span-1">
+          <h3 className="font-bold text-gray-800 mb-4">{editingCode ? "📝 Editar Aeroporto" : "➕ Adicionar Aeroporto"}</h3>
+          <div className="space-y-3">
+            <Input label="Código IATA (3 letras)" value={code} onChange={e=>setCode(e.target.value)} disabled={!!editingCode} maxLength={3} placeholder="Ex: GRU" />
+            <Input label="Nome / Cidade" value={name} onChange={e=>setName(e.target.value)} placeholder="Ex: São Paulo (Guarulhos)" />
+            {msg && <div className="text-sm font-semibold text-gray-600 mt-2">{msg}</div>}
+          </div>
+          <div className="flex gap-2 mt-4">
+            <Button onClick={salvar} disabled={!code || !name}>Salvar</Button>
+            {editingCode && (
+              <Button variant="secondary" onClick={() => { setCode(""); setName(""); setEditingCode(null); }}>Cancelar</Button>
+            )}
+          </div>
+        </Card>
+
+        <Card className="md:col-span-2">
+          <h3 className="font-bold text-gray-800 mb-4">📋 Lista de Aeroportos ({filtered.length})</h3>
+          {loading ? (
+            <div className="text-center text-gray-400 py-8">Carregando aeroportos...</div>
+          ) : (
+            <div className="overflow-y-auto max-h-[500px]">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-gray-400 border-b">
+                    <th className="text-left py-2">Código</th>
+                    <th className="text-left py-2">Nome / Cidade</th>
+                    <th className="text-right py-2">Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(a => (
+                    <tr key={a.code} className="border-b border-gray-50 hover:bg-gray-50">
+                      <td className="py-2.5 font-mono font-bold text-blue-600">{a.code}</td>
+                      <td className="py-2.5 text-gray-800">{a.name}</td>
+                      <td className="py-2.5 text-right space-x-2">
+                        <button onClick={() => edit(a)} className="text-blue-600 hover:text-blue-800 text-xs font-semibold">Editar</button>
+                        <button onClick={() => deletar(a.code)} className="text-red-600 hover:text-red-800 text-xs font-semibold">Deletar</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // PAINEL ADMIN — mantém original, remove WhatsApp do recibo
 // ============================================================
 function PainelAdmin({ onLogout }) {
@@ -1604,7 +1770,7 @@ function PainelAdmin({ onLogout }) {
 
   const menus = [
     {id:"Dashboard",icon:"📊",grupo:"admin"},{id:"Usuários",icon:"👥",grupo:"admin"},
-    {id:"Pagamentos",icon:"💰",grupo:"admin"},{id:"Configurações",icon:"⚙️",grupo:"admin"},
+    {id:"Pagamentos",icon:"💰",grupo:"admin"},{id:"Aeroportos",icon:"🛫",grupo:"admin"},{id:"Configurações",icon:"⚙️",grupo:"admin"},
     {id:"Tarifas",icon:"🧮",grupo:"ferramentas"},{id:"Conversor",icon:"✈️",grupo:"ferramentas"},{id:"Reemissão",icon:"🔄",grupo:"ferramentas"},{id:"Reemissão Manual",icon:"🔁",grupo:"ferramentas"},
   ];
 
@@ -1958,6 +2124,7 @@ function PainelAdmin({ onLogout }) {
             </>
           )}
           {tab==="Configurações"&&<ConfiguracoesSistema/>}
+          {tab==="Aeroportos"&&<ModuloAeroportosAdmin/>}
           {tab==="Tarifas"&&<ModuloTarifas/>}
           {tab==="Conversor"&&<ModuloConversor/>}
           {tab==="Reemissão"&&<ModuloReemissao/>}
@@ -2072,6 +2239,15 @@ export default function App() {
   const [user, setUser] = useState(null);
 
   useEffect(() => {
+    // Carregar aeroportos personalizados do banco e integrar ao dicionário global AIRPORTS
+    supabase.from("aeroportos").select("code, name").then(({ data }) => {
+      if (data) {
+        data.forEach(a => {
+          AIRPORTS[a.code.toUpperCase()] = a.name;
+        });
+      }
+    });
+
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session) {
         const { data: profile } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
