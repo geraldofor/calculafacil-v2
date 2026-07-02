@@ -609,20 +609,55 @@ function ModuloTarifas() {
         const firstSegment = segments[0];
         const firstCiaCode = validatingCarrier || (firstSegment ? firstSegment.al : '');
 
-        // Formatação Dinâmica do Roteiro (com suporte a SURFACE terrestre)
-        let rotStr = '';
-        segments.forEach((s, idx) => {
+        // Formatação Dinâmica do Roteiro (com suporte a SURFACE terrestre e alinhamento de colunas)
+        const processed = segments.map(s => {
+          const ciaName = AIRLINES[s.al] || s.al;
+          const ciaFlight = `${ciaName} ${s.flightNum}`;
           const orgName = AIRPORTS[s.origin] || s.origin;
           const destName = AIRPORTS[s.dest] || s.dest;
-          const ciaName = AIRLINES[s.al] || s.al;
-          rotStr += `${ciaName} ${s.flightNum} ➔ ${s.date} ➔ ${orgName} (${s.origin}) ${s.time} ➔ ${destName} (${s.dest})\n`;
+          const orgStr = `${orgName} (${s.origin})`;
+          const destStr = `${destName} (${s.dest})`;
+          
+          let timeStr = s.time;
+          if (s.time && s.time.length === 4) {
+            timeStr = `${s.time.slice(0, 2)}:${s.time.slice(2)}`;
+          }
+
+          return {
+            ciaFlight,
+            date: s.date,
+            orgStr,
+            destStr,
+            timeStr,
+            dest: s.dest
+          };
+        });
+
+        let maxCiaFlight = 0;
+        let maxOrg = 0;
+
+        processed.forEach(p => {
+          if (p.ciaFlight.length > maxCiaFlight) maxCiaFlight = p.ciaFlight.length;
+          if (p.orgStr.length > maxOrg) maxOrg = p.orgStr.length;
+        });
+
+        maxCiaFlight += 2;
+        maxOrg += 2;
+
+        let rotStr = '';
+        processed.forEach((p, idx) => {
+          const ciaFormatted = p.ciaFlight.padEnd(maxCiaFlight, ' ');
+          const orgFormatted = p.orgStr.padEnd(maxOrg, ' ');
+          rotStr += `${ciaFormatted} ➔ ${p.date} ➔ ${orgFormatted}${p.timeStr} ➔ ${p.destStr}\n`;
 
           // Detecta Surface (trecho terrestre)
           const nextSegment = segments[idx + 1];
-          if (nextSegment && s.dest !== nextSegment.origin) {
-            const surfaceOrgName = AIRPORTS[s.dest] || s.dest;
+          if (nextSegment && p.dest !== nextSegment.origin) {
+            const surfaceOrgName = AIRPORTS[p.dest] || p.dest;
             const surfaceDestName = AIRPORTS[nextSegment.origin] || nextSegment.origin;
-            rotStr += `➔ TERRESTRE (SURFACE) ➔ ${surfaceOrgName} (${s.dest}) ➔ ${surfaceDestName} (${nextSegment.origin})\n`;
+            const surfaceOrgStr = `${surfaceOrgName} (${p.dest})`.padEnd(maxOrg, ' ');
+            const surfaceCiaFormatted = 'TERRESTRE (SURFACE)'.padEnd(maxCiaFlight, ' ');
+            rotStr += `${surfaceCiaFormatted} ➔   --  ➔ ${surfaceOrgStr}--:-- ➔ ${surfaceDestName} (${nextSegment.origin})\n`;
           }
         });
 
