@@ -1167,7 +1167,22 @@ function ModuloReemissao({ user }) {
         <Tab tabs={["AMADEUS", "OUTROS GDS"]} active={gds} onChange={setGds} />
       </div>
       <Card>
-        <Textarea label={gds === "AMADEUS" ? "Resumo ET* — Cole aqui" : "Resumo Tarifas e Taxas — Cole aqui"} value={et} onChange={e=>setEt(e.target.value)} rows={7}
+        <div className="flex justify-between items-center mb-1">
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            {gds === "AMADEUS" ? "Resumo ET* — Cole aqui" : "Resumo Tarifas e Taxas — Cole aqui"}
+          </label>
+          <button 
+            onClick={() => {
+              const template = `OLD BASE FARE       USD       0.00\nNEW BASE FARE       USD       0.00\nFARE BALANCE        BRL       0.00\nTAX BALANCE         BRL       0.00\nPENALTY             BRL       0.00`;
+              navigator.clipboard.writeText(template);
+              alert("Modelo de texto copiado! Basta colar na caixa de texto abaixo e preencher com seus valores.");
+            }}
+            className="text-[11px] text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded border border-blue-200/60 transition-all cursor-pointer"
+          >
+            📋 Copiar Modelo de Preenchimento
+          </button>
+        </div>
+        <Textarea value={et} onChange={e=>setEt(e.target.value)} rows={7}
           placeholder={gds==="AMADEUS"?"Cole o conteúdo do resumo ET* aqui...\n\nExemplo:\nOLD BASE FARE       USD       795.00\nNEW BASE FARE       USD       795.00\nFARE BALANCE        BRL         0.00\nTAX BALANCE         BRL        24.00\nPENALTY             BRL       200.00\nTICKET DIFFERENCE   BRL       224.00\nTOTAL ADD COLL      BRL       224.00" : "Cole o resumo contendo as tarifas e taxas aqui...\n\nExemplo:\nOLD BASE FARE       USD       795.00\nNEW BASE FARE       USD       795.00\nFARE BALANCE        BRL         0.00\nTAX BALANCE         BRL        24.00\nPENALTY             BRL       200.00"} />
       </Card>
       <Card>
