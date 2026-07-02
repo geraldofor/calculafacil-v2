@@ -913,7 +913,7 @@ function ModuloConversor() {
 // ============================================================
 // MÓDULO: REEMISSÃO (ET* — original)
 // ============================================================
-function ModuloReemissao() {
+function ModuloReemissao({ user }) {
   const [gds, setGds] = useState("AMADEUS");
   const [et, setEt] = useState("");
   const [result, setResult] = useState("Cole o resumo Amadeus (ET*) e clique em CALCULAR");
@@ -924,6 +924,29 @@ function ModuloReemissao() {
     dataEmissao:new Date().toISOString().split("T")[0],
     aplicarMarkup:false,markup:"10",
   });
+  
+  const [historico, setHistorico] = useState([]);
+  const [loadingHist, setLoadingHist] = useState(false);
+  const [savingHist, setSavingHist] = useState(false);
+  const [histMsg, setHistMsg] = useState("");
+
+  const carregarHistorico = async () => {
+    if (!user?.company) return;
+    setLoadingHist(true);
+    const { data, error } = await supabase
+      .from("reemissoes")
+      .select("*, profiles(full_name)")
+      .eq("company", user.company)
+      .order("created_at", { ascending: false })
+      .limit(10);
+    if (data) setHistorico(data);
+    setLoadingHist(false);
+  };
+
+  useEffect(() => {
+    carregarHistorico();
+  }, [user]);
+
   const upd = (k,v) => setForm(f => ({...f,[k]:v}));
   const extractVal = (texto,pattern) => { const m=texto.match(pattern); if(!m||!m[1])return 0; const p=parseFloat(m[1].trim().replace(/,/g,"")); return isNaN(p)?0:p; };
   const formatVal = (val) => { if(Math.abs(val)<0.01)return"0,00"; return val.toFixed(2).replace(".",","); };
@@ -1042,6 +1065,98 @@ function ModuloReemissao() {
     setResult(out);
   };
 
+  const salvarNoHistorico = async () => {
+    if (!result || result.startsWith("Cole o resumo") || !user) return;
+    setSavingHist(true);
+    setHistMsg("");
+
+    const pax = form.passageiro || (form.passageiros ? form.passageiros.split('\n')[0].replace(/^\d+\.?\s*/, '') : "");
+    const cotacao = parseFloat(form.cotacao.replace(",", "."));
+    const feeUSD = parseFloat(form.feeUSD.replace(",", "."));
+    const ravPercent = parseFloat(form.ravPercent.replace(",", ".")) / 100;
+    const ravMinimo = parseFloat(form.ravMinimo.replace(",", "."));
+    
+    const texto = et.trim().toUpperCase();
+    let oldBaseFareUSD = extractVal(texto, /OLD\s+BASE\s+FARE\s+USD\s+([\-\d,.]+)/i);
+    let newBaseFareUSD = extractVal(texto, /NEW\s+BASE\s+FARE\s+USD\s+([\-\d,.]+)/i);
+    let fareBalanceBRL = extractVal(texto, /FARE\s+BALANCE\s+BRL\s+([\-\d,.]+)/i);
+    const taxBalanceBRL = extractVal(texto, /TAX\s+BALANCE\s+BRL\s+([\-\d,.]+)/i);
+    const penaltyBRL = extractVal(texto, /PENALTY\s+BRL\s+([\-\d,.]+)/i);
+    
+    let baseOriginalBRL = Math.abs(fareBalanceBRL) > 0.01 ? fareBalanceBRL : 0;
+    let baseCalcBRL = baseOriginalBRL;
+    if (form.aplicarMarkup && parseFloat(form.markup) > 0) {
+      const mp = parseFloat(form.markup) / 100;
+      baseCalcBRL = baseOriginalBRL / (1 - mp);
+    }
+    const feeBRL = feeUSD * cotacao;
+    let ravVal = 0;
+    if (baseCalcBRL > 0) {
+      ravVal = baseCalcBRL * ravPercent;
+      if (ravVal < ravMinimo) ravVal = ravMinimo;
+    }
+    const totalPorPax = baseCalcBRL + taxBalanceBRL + penaltyBRL + feeBRL + ravVal;
+
+    const { error } = await supabase
+      .from("reemissoes")
+      .insert({
+        created_by: user.id,
+        user_name: user.name,
+        company: user.company || "GRUPOBRT",
+        passageiro: pax,
+        loc: form.loc,
+        ticket_original: form.ticketOriginal,
+        rota: form.rota || (form.roteiro ? form.roteiro.split('\n')[0] : ""),
+        cotacao_usd: cotacao,
+        fee_usd: feeUSD,
+        old_fare_usd: oldBaseFareUSD,
+        new_fare_usd: newBaseFareUSD,
+        fare_diff_brl: baseCalcBRL,
+        tax_diff_brl: taxBalanceBRL,
+        penalty_brl: penaltyBRL,
+        fee_brl: feeBRL,
+        rav_brl: ravVal,
+        total_brl: totalPorPax,
+        output_text: result,
+        raw_input: et
+      });
+
+    if (error) {
+      setHistMsg("❌ Erro ao salvar: " + error.message);
+    } else {
+      setHistMsg("✅ Salvo no histórico da equipe!");
+      carregarHistorico();
+    }
+    setSavingHist(false);
+  };
+
+  const carregarCalculo = (h) => {
+    setEt(h.raw_input || "");
+    setForm({
+      cotacao: h.cotacao_usd.toString(),
+      feeUSD: h.fee_usd.toString(),
+      ravPercent: "7.00",
+      ravMinimo: "200",
+      ticketOriginal: h.ticket_original || "",
+      passageiro: h.passageiro || "",
+      passageiros: "",
+      rota: h.rota || "",
+      roteiro: "",
+      loc: h.loc || "",
+      dataEmissao: new Date().toISOString().split("T")[0],
+      aplicarMarkup: h.fare_diff_brl > 0,
+      markup: "10"
+    });
+    setResult(h.output_text);
+  };
+
+  const deletarCalculo = async (id) => {
+    if (!confirm("Excluir este cálculo do histórico?")) return;
+    const { error } = await supabase.from("reemissoes").delete().eq("id", id);
+    if (error) alert("Erro ao excluir: " + error.message);
+    else carregarHistorico();
+  };
+
   const copiar = () => { navigator.clipboard.writeText(result); setCopied(true); setTimeout(() => setCopied(false), 2000); };
   const limpar = () => { setEt(""); setForm(f=>({...f,ticketOriginal:"",passageiro:"",passageiros:"",rota:"",roteiro:"",loc:"",aplicarMarkup:false})); setResult("Cole o resumo Amadeus (ET*) e clique em CALCULAR"); };
 
@@ -1049,11 +1164,11 @@ function ModuloReemissao() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-black text-gray-900">Comparação de Bilhetes — Reemissão</h2>
-        <Tab tabs={["AMADEUS","GALILEO (OCR)","SABRE"]} active={gds} onChange={setGds} />
+        <Tab tabs={["AMADEUS", "OUTROS GDS"]} active={gds} onChange={setGds} />
       </div>
       <Card>
-        <Textarea label="Resumo ET* — Cole aqui" value={et} onChange={e=>setEt(e.target.value)} rows={7}
-          placeholder={"Cole o conteúdo do resumo ET* aqui...\n\nExemplo:\nOLD BASE FARE       USD       795.00\nNEW BASE FARE       USD       795.00\nFARE BALANCE        BRL         0.00\nTAX BALANCE         BRL        24.00\nPENALTY             BRL       200.00\nTICKET DIFFERENCE   BRL       224.00\nTOTAL ADD COLL      BRL       224.00"} />
+        <Textarea label={gds === "AMADEUS" ? "Resumo ET* — Cole aqui" : "Resumo Tarifas e Taxas — Cole aqui"} value={et} onChange={e=>setEt(e.target.value)} rows={7}
+          placeholder={gds==="AMADEUS"?"Cole o conteúdo do resumo ET* aqui...\n\nExemplo:\nOLD BASE FARE       USD       795.00\nNEW BASE FARE       USD       795.00\nFARE BALANCE        BRL         0.00\nTAX BALANCE         BRL        24.00\nPENALTY             BRL       200.00\nTICKET DIFFERENCE   BRL       224.00\nTOTAL ADD COLL      BRL       224.00" : "Cole o resumo contendo as tarifas e taxas aqui...\n\nExemplo:\nOLD BASE FARE       USD       795.00\nNEW BASE FARE       USD       795.00\nFARE BALANCE        BRL         0.00\nTAX BALANCE         BRL        24.00\nPENALTY             BRL       200.00"} />
       </Card>
       <Card>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -1088,10 +1203,56 @@ function ModuloReemissao() {
       </Card>
       <div className="flex gap-3">
         <Button onClick={calcular}>🧮 Calcular</Button>
-        <Button variant="secondary" onClick={copiar} disabled={result==="Cole o resumo Amadeus (ET*) e clique em CALCULAR"}>{copied?"✓ Copiado!":"📋 Copiar"}</Button>
+        <Button variant="secondary" onClick={copiar} disabled={result.startsWith("Cole o resumo")}>{copied?"✓ Copiado!":"📋 Copiar"}</Button>
+        <Button variant="success" onClick={salvarNoHistorico} disabled={result.startsWith("Cole o resumo") || savingHist}>{savingHist?"Salvando...":"💾 Salvar no Histórico"}</Button>
         <Button variant="secondary" onClick={limpar}>🗑 Limpar</Button>
       </div>
+      {histMsg && <div className="text-sm font-semibold text-gray-600 mt-2">{histMsg}</div>}
+      
       <Terminal>{result}</Terminal>
+
+      {user?.company && (
+        <Card className="mt-6">
+          <h3 className="font-bold text-gray-800 mb-4">📋 Histórico de Remarcações da Equipe ({user.company})</h3>
+          {loadingHist ? (
+            <div className="text-center text-gray-400 py-6">Carregando histórico...</div>
+          ) : historico.length === 0 ? (
+            <div className="text-center text-gray-400 py-6">Nenhum cálculo registrado ainda.</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-gray-400 border-b">
+                  <th className="text-left py-2">Data</th>
+                  <th className="text-left py-2">Passageiro</th>
+                  <th className="text-left py-2">LOC</th>
+                  <th className="text-left py-2">Rota</th>
+                  <th className="text-left py-2">Total</th>
+                  <th className="text-left py-2">Criado por</th>
+                  <th className="text-right py-2">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historico.map(h => (
+                  <tr key={h.id} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="py-2 text-gray-400">{new Date(h.created_at).toLocaleDateString("pt-BR")}</td>
+                    <td className="py-2 font-bold text-gray-700">{h.passageiro || "—"}</td>
+                    <td className="py-2 font-mono">{h.loc || "—"}</td>
+                    <td className="py-2">{h.rota || "—"}</td>
+                    <td className="py-2 font-bold text-green-600">R$ {h.total_brl.toFixed(2)}</td>
+                    <td className="py-2 text-xs text-gray-500">{h.profiles?.full_name || h.user_name}</td>
+                    <td className="py-2 text-right space-x-2">
+                      <button onClick={() => carregarCalculo(h)} className="text-blue-600 hover:text-blue-800 text-xs font-bold">Carregar</button>
+                      {(user.role === "admin" || user.id === h.created_by) && (
+                        <button onClick={() => deletarCalculo(h.id)} className="text-red-600 hover:text-red-800 text-xs font-bold">Excluir</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Card>
+      )}
     </div>
   );
 }
@@ -1709,7 +1870,7 @@ function ModuloAeroportosAdmin() {
 // ============================================================
 // PAINEL ADMIN — mantém original, remove WhatsApp do recibo
 // ============================================================
-function PainelAdmin({ onLogout }) {
+function PainelAdmin({ user, onLogout }) {
   const [tab, setTab] = useState("Dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [userHistoricoId, setUserHistoricoId] = useState(null);
@@ -1719,7 +1880,7 @@ function PainelAdmin({ onLogout }) {
   const [showModal, setShowModal] = useState(false);
   const [showAcaoModal, setShowAcaoModal] = useState(false);
   const [userSelecionado, setUserSelecionado] = useState(null);
-  const [novoUser, setNovoUser] = useState({ name:"", email:"", plan:"trial", trialDays:5 });
+  const [novoUser, setNovoUser] = useState({ name:"", email:"", plan:"trial", company:"GRUPOBRT", trialDays:5 });
   const [savingUser, setSavingUser] = useState(false);
   const [userMsg, setUserMsg] = useState("");
   const [pagForm, setPagForm] = useState({ valor:"49.99", metodo:"PIX", obs:"" });
@@ -1761,11 +1922,20 @@ function PainelAdmin({ onLogout }) {
   const criarUsuario = async () => {
     setSavingUser(true); setUserMsg("");
     try {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email: novoUser.email, password: Math.random().toString(36).slice(-10)+"A1!",
         options: { data: { full_name:novoUser.name } }
       });
       if(error){setUserMsg("Erro: "+error.message);setSavingUser(false);return;}
+      
+      if (data?.user) {
+        await new Promise(r => setTimeout(r, 600));
+        await supabase.from("profiles").update({
+          plan: novoUser.plan,
+          company: novoUser.company
+        }).eq("id", data.user.id);
+      }
+
       setUserMsg("✅ Usuário criado! Oriente a redefinir a senha via 'Esqueci minha senha'.");
       setTimeout(()=>{setShowModal(false);setUserMsg("");carregarUsuarios();},2500);
     } catch(e){setUserMsg("Erro inesperado.");}
@@ -1779,12 +1949,11 @@ function PainelAdmin({ onLogout }) {
   };
 
   const getStatus = (u) => {
-    if(u.plan==="cancelado")return{label:"Cancelado",color:"gray"};
-    if(u.blocked)return{label:"Bloqueado",color:"red"};
-    if(u.plan==="trial")return{label:`Trial (${trialDaysLeft(u)}d)`,color:trialDaysLeft(u)<=1?"red":"yellow"};
-    if(u.plan==="individual"||u.plan==="empresarial")return{label:"Ativo",color:"green"};
-    if(u.plan==="admin")return{label:"Admin",color:"purple"};
-    return{label:u.plan,color:"gray"};
+    if(u.blocked)return{label:"Bloqueado",color:"danger"};
+    if(u.plan==="pending_pro")return{label:"Aguardando Pro",color:"warning"};
+    if(u.plan==="individual"||u.plan==="empresarial")return{label:"Pro",color:"success"};
+    const d=trialDaysLeft(u);
+    return d>0?{label:`Trial (${d}d)`,color:"info"}:{label:"Expirado",color:"danger"};
   };
 
   const hoje=new Date();
@@ -1795,7 +1964,11 @@ function PainelAdmin({ onLogout }) {
   const ativos=users.filter(u=>(u.plan==="individual"||u.plan==="empresarial")&&!u.blocked).length;
   const trials=users.filter(u=>u.plan==="trial"&&!u.blocked).length;
   const bloqueados=users.filter(u=>u.blocked).length;
-  const vencendoHoje=users.filter(u=>u.plan==="trial"&&trialDaysLeft(u)<=1&&!u.blocked).length;
+  const vencendoHoje=users.filter(u=>{
+    if(!u.paid_until||u.plan==="trial")return false;
+    const diff=(new Date(u.paid_until)-hoje)/(1000*60*60*24);
+    return diff>=0&&diff<=1&&!u.blocked;
+  }).length;
   const vencendo7d=users.filter(u=>{
     if(!u.paid_until||u.plan==="trial")return false;
     const diff=(new Date(u.paid_until)-hoje)/(1000*60*60*24);
@@ -1827,6 +2000,7 @@ function PainelAdmin({ onLogout }) {
                   <option value="empresarial">Empresarial</option>
                 </select>
               </div>
+              <Input label="Empresa (Ex: GRUPOBRT)" value={novoUser.company} onChange={e=>setNovoUser({...novoUser,company:e.target.value})} placeholder="Nome da empresa do cliente" />
               {userMsg&&<div className={`text-sm p-3 rounded-lg ${userMsg.startsWith("✅")?"bg-green-50 text-green-700":"bg-red-50 text-red-600"}`}>{userMsg}</div>}
             </div>
             <div className="flex gap-3 mt-5">
@@ -1847,6 +2021,20 @@ function PainelAdmin({ onLogout }) {
             <div className="bg-gray-50 rounded-xl p-3 mb-4">
               <div className="font-bold text-gray-800">{userSelecionado.full_name}</div>
               <div className="text-sm text-gray-500">{userSelecionado.email}</div>
+              <div className="text-xs text-gray-400 mt-1">Empresa: <span className="font-bold">{userSelecionado.company || "Sem empresa"}</span></div>
+              <div className="mt-2 flex gap-2 items-center">
+                <input type="text" placeholder="Alterar empresa..." defaultValue={userSelecionado.company || ""}
+                  onBlur={async (e) => {
+                    const val = e.target.value.trim();
+                    if(val !== userSelecionado.company) {
+                      await supabase.from("profiles").update({ company: val }).eq("id", userSelecionado.id);
+                      userSelecionado.company = val;
+                      carregarUsuarios();
+                    }
+                  }}
+                  className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none w-48" />
+                <span className="text-[10px] text-gray-400 font-semibold">(clique fora para salvar)</span>
+              </div>
               <div className="mt-1"><Badge color={getStatus(userSelecionado).color}>{getStatus(userSelecionado).label}</Badge></div>
             </div>
             <div className="grid grid-cols-2 gap-3 mb-4">
@@ -2162,7 +2350,7 @@ function PainelAdmin({ onLogout }) {
           {tab==="Aeroportos"&&<ModuloAeroportosAdmin/>}
           {tab==="Tarifas"&&<ModuloTarifas/>}
           {tab==="Conversor"&&<ModuloConversor/>}
-          {tab==="Reemissão"&&<ModuloReemissao/>}
+          {tab==="Reemissão"&&<ModuloReemissao user={user}/>}
           {tab==="Reemissão Manual"&&<ModuloReemissaoManual/>}
         </main>
       </div>
@@ -2258,7 +2446,7 @@ function Dashboard({ user, onLogout, onGoAdmin }) {
         <main className="flex-1 p-6">
           {modulo==="Tarifas"&&<ModuloTarifas/>}
           {modulo==="Conversor"&&<ModuloConversor/>}
-          {modulo==="Reemissão"&&<ModuloReemissao/>}
+          {modulo==="Reemissão"&&<ModuloReemissao user={user}/>}
           {modulo==="Reemissão Manual"&&<ModuloReemissaoManual/>}
         </main>
       </div>
@@ -2340,6 +2528,6 @@ export default function App() {
   if (screen === "landing") return <LandingPage onLogin={() => setScreen("login")} onRegister={() => setScreen("register")} />;
   if (screen === "login") return <AuthPage mode="login" onAuth={handleAuth} onSwitch={() => setScreen("register")} onBack={() => setScreen("landing")} />;
   if (screen === "register") return <AuthPage mode="register" onAuth={handleAuth} onSwitch={() => setScreen("login")} onBack={() => setScreen("landing")} />;
-  if (screen === "admin") return <PainelAdmin onLogout={handleLogout} />;
+  if (screen === "admin") return <PainelAdmin user={user} onLogout={handleLogout} />;
   if (screen === "app") return <Dashboard user={user} onLogout={handleLogout} onGoAdmin={() => setScreen("admin")} />;
 }
