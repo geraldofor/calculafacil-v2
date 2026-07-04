@@ -931,24 +931,48 @@ function ModuloReemissao({ user }) {
   const [histMsg, setHistMsg] = useState("");
 
   const carregarHistorico = async () => {
-    if (!user?.company) return;
+    const userCompany = user?.company || "GRUPOBRT";
     setLoadingHist(true);
     const { data, error } = await supabase
       .from("reemissoes")
       .select("*, profiles(full_name)")
-      .eq("company", user.company)
+      .eq("company", userCompany)
       .order("created_at", { ascending: false })
       .limit(10);
     if (data) setHistorico(data);
     setLoadingHist(false);
   };
 
+  const handleGdsChange = (newGds) => {
+    setGds(newGds);
+    setEt("");
+    setResult(newGds === "AMADEUS" 
+      ? "Cole o resumo Amadeus (ET*) e clique em CALCULAR" 
+      : "Cole o resumo de Outros GDS e clique em CALCULAR"
+    );
+  };
+
   useEffect(() => {
-    carregarHistorico();
+    if (user) carregarHistorico();
   }, [user]);
 
   const upd = (k,v) => setForm(f => ({...f,[k]:v}));
-  const extractVal = (texto,pattern) => { const m=texto.match(pattern); if(!m||!m[1])return 0; const p=parseFloat(m[1].trim().replace(/,/g,"")); return isNaN(p)?0:p; };
+  const extractVal = (texto, pattern) => {
+    const m = texto.match(pattern);
+    if (!m || !m[1]) return 0;
+    let clean = m[1].trim();
+    if (clean.includes(".") && clean.includes(",")) {
+      clean = clean.replace(/\./g, "").replace(",", ".");
+    } else if (clean.includes(",")) {
+      if (clean.match(/,\d{2}$/)) {
+        clean = clean.replace(",", ".");
+      } else {
+        clean = clean.replace(/,/g, "");
+      }
+    }
+    const p = parseFloat(clean);
+    return isNaN(p) ? 0 : p;
+  };
   const formatVal = (val) => { if(Math.abs(val)<0.01)return"0,00"; return val.toFixed(2).replace(".",","); };
   const formatDateBR = (d) => { if(!d)return""; const[y,m,dia]=d.split("-"); return`${dia}/${m}/${y}`; };
 
@@ -959,15 +983,15 @@ function ModuloReemissao({ user }) {
     const feeUSD=parseFloat(form.feeUSD.replace(",","."));
     const ravPercent=parseFloat(form.ravPercent.replace(",","."))/100;
     const ravMinimo=parseFloat(form.ravMinimo.replace(",","."));
-    let oldBaseFareUSD=extractVal(texto,/OLD\s+BASE\s+FARE\s+USD\s+([\-\d,.]+)/i);
-    let newBaseFareUSD=extractVal(texto,/NEW\s+BASE\s+FARE\s+USD\s+([\-\d,.]+)/i);
-    let fareBalanceBRL=extractVal(texto,/FARE\s+BALANCE\s+BRL\s+([\-\d,.]+)/i);
-    const taxBalanceBRL=extractVal(texto,/TAX\s+BALANCE\s+BRL\s+([\-\d,.]+)/i);
-    const residualValueBRL=extractVal(texto,/RESIDUAL\s+VALUE\s+BRL\s+([\-\d,.]+)/i);
-    const penaltyBRL=extractVal(texto,/PENALTY\s+BRL\s+([\-\d,.]+)/i);
-    const ticketDiffBRL=extractVal(texto,/TICKET\s+DIFFERENCE\s+BRL\s+([\-\d,.]+)/i);
-    const totalAddColBRL=extractVal(texto,/TOTAL\s+ADD\s+COLL\s+BRL\s+([\-\d,.]+)/i);
-    const nonRefundableTax=extractVal(texto,/NON\s+REFUNDABLE\s+TAX\s+BRL\s+([\-\d,.]+)/i);
+    let oldBaseFareUSD=extractVal(texto,/(?:OLD\s+BASE\s+FARE|OLD\s+FARE|ORIGINAL\s+FARE|TARIFA\s+ANTIGA|ORIGINAL\s+TICKET\s+BASE\s+FARE)\s+(?:USD)?\s+([\-\d,.]+)/i);
+    let newBaseFareUSD=extractVal(texto,/(?:NEW\s+BASE\s+FARE|NEW\s+FARE|TARIFA\s+NOVA|NEW\s+TICKET\s+BASE\s+FARE)\s+(?:USD)?\s+([\-\d,.]+)/i);
+    let fareBalanceBRL=extractVal(texto,/(?:FARE\s+BALANCE|FARE\s+DIFF|DIF\s+TARIFA|DIFERENCA\s+TARIFA|FARE\s+DIFFERENCE)\s+(?:BRL)?\s+([\-\d,.]+)/i);
+    const taxBalanceBRL=extractVal(texto,/(?:TAX\s+BALANCE|TAX\s+DIFF|DIF\s+TAXAS|DIF\s+TAXA|DIFERENCA\s+TAXAS|TAX\s+DIFFERENCE)\s+(?:BRL)?\s+([\-\d,.]+)/i);
+    const residualValueBRL=extractVal(texto,/(?:RESIDUAL\s+VALUE|VALOR\s+RESIDUAL)\s+(?:BRL)?\s+([\-\d,.]+)/i);
+    const penaltyBRL=extractVal(texto,/(?:PENALTY|MULTA|TAXA\s+REMARCACAO|PENALIDADE)\s+(?:BRL)?\s+([\-\d,.]+)/i);
+    const ticketDiffBRL=extractVal(texto,/(?:TICKET\s+DIFFERENCE|DIFERENCA\s+BILHETE)\s+(?:BRL)?\s+([\-\d,.]+)/i);
+    const totalAddColBRL=extractVal(texto,/(?:TOTAL\s+ADD\s+COLL|TOTAL\s+ADD\s+COL|TOTAL\s+A\s+COBRAR|GRAND\s+TOTAL)\s+(?:BRL)?\s+([\-\d,.]+)/i);
+    const nonRefundableTax=extractVal(texto,/(?:NON\s+REFUNDABLE\s+TAX|TAXA\s+NAO\s+REEMBOLSAVEL)\s+(?:BRL)?\s+([\-\d,.]+)/i);
     const oldOriginal=oldBaseFareUSD, newOriginal=newBaseFareUSD;
     let comMarkup=false;
 
@@ -1097,12 +1121,14 @@ function ModuloReemissao({ user }) {
     }
     const totalPorPax = baseCalcBRL + taxBalanceBRL + penaltyBRL + feeBRL + ravVal;
 
+    const userCompany = user?.company || "GRUPOBRT";
+
     const { error } = await supabase
       .from("reemissoes")
       .insert({
         created_by: user.id,
         user_name: user.name,
-        company: user.company || "GRUPOBRT",
+        company: userCompany,
         passageiro: pax,
         loc: form.loc,
         ticket_original: form.ticketOriginal,
@@ -1158,13 +1184,13 @@ function ModuloReemissao({ user }) {
   };
 
   const copiar = () => { navigator.clipboard.writeText(result); setCopied(true); setTimeout(() => setCopied(false), 2000); };
-  const limpar = () => { setEt(""); setForm(f=>({...f,ticketOriginal:"",passageiro:"",passageiros:"",rota:"",roteiro:"",loc:"",aplicarMarkup:false})); setResult("Cole o resumo Amadeus (ET*) e clique em CALCULAR"); };
+  const limpar = () => { setEt(""); setForm(f=>({...f,ticketOriginal:"",passageiro:"",passageiros:"",rota:"",roteiro:"",loc:"",aplicarMarkup:false})); setResult(gds==="AMADEUS"?"Cole o resumo Amadeus (ET*) e clique em CALCULAR":"Cole o resumo de Outros GDS e clique em CALCULAR"); };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-black text-gray-900">Comparação de Bilhetes — Reemissão</h2>
-        <Tab tabs={["AMADEUS", "OUTROS GDS"]} active={gds} onChange={setGds} />
+        <Tab tabs={["AMADEUS", "OUTROS GDS"]} active={gds} onChange={handleGdsChange} />
       </div>
       <Card>
         <div className="flex justify-between items-center mb-1">
