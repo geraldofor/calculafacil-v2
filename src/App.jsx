@@ -1252,9 +1252,9 @@ function ModuloReemissao({ user }) {
       
       <Terminal>{result}</Terminal>
 
-      {user?.company && (
+      {user && (
         <Card className="mt-6">
-          <h3 className="font-bold text-gray-800 mb-4">📋 Histórico de Remarcações da Equipe ({user.company})</h3>
+          <h3 className="font-bold text-gray-800 mb-4">📋 Histórico de Remarcações da Equipe ({user?.company || "GRUPOBRT"})</h3>
           {loadingHist ? (
             <div className="text-center text-gray-400 py-6">Carregando histórico...</div>
           ) : historico.length === 0 ? (
@@ -1283,7 +1283,7 @@ function ModuloReemissao({ user }) {
                     <td className="py-2 text-xs text-gray-500">{h.profiles?.full_name || h.user_name}</td>
                     <td className="py-2 text-right space-x-2">
                       <button onClick={() => carregarCalculo(h)} className="text-blue-600 hover:text-blue-800 text-xs font-bold">Carregar</button>
-                      {(user.role === "admin" || user.id === h.created_by) && (
+                      {(user?.role === "admin" || user?.id === h.created_by) && (
                         <button onClick={() => deletarCalculo(h.id)} className="text-red-600 hover:text-red-800 text-xs font-bold">Excluir</button>
                       )}
                     </td>
