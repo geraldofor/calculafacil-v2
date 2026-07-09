@@ -1275,11 +1275,11 @@ function ModuloReemissao({ user }) {
               <tbody>
                 {historico.map(h => (
                   <tr key={h.id} className="border-b border-gray-50 hover:bg-gray-50">
-                    <td className="py-2 text-gray-400">{new Date(h.created_at).toLocaleDateString("pt-BR")}</td>
+                    <td className="py-2 text-gray-400">{h.created_at ? new Date(h.created_at).toLocaleDateString("pt-BR") : "—"}</td>
                     <td className="py-2 font-bold text-gray-700">{h.passageiro || "—"}</td>
                     <td className="py-2 font-mono">{h.loc || "—"}</td>
                     <td className="py-2">{h.rota || "—"}</td>
-                    <td className="py-2 font-bold text-green-600">R$ {h.total_brl.toFixed(2)}</td>
+                    <td className="py-2 font-bold text-green-600">R$ {(h.total_brl || 0).toFixed(2)}</td>
                     <td className="py-2 text-xs text-gray-500">{h.profiles?.full_name || h.user_name}</td>
                     <td className="py-2 text-right space-x-2">
                       <button onClick={() => carregarCalculo(h)} className="text-blue-600 hover:text-blue-800 text-xs font-bold">Carregar</button>
@@ -1990,6 +1990,7 @@ function PainelAdmin({ user, onLogout }) {
   };
 
   const getStatus = (u) => {
+    if(u.role==="admin"||u.plan==="admin")return{label:"Admin/Master",color:"purple"};
     if(u.blocked)return{label:"Bloqueado",color:"danger"};
     if(u.plan==="pending_pro")return{label:"Aguardando Pro",color:"warning"};
     if(u.plan==="individual"||u.plan==="empresarial")return{label:"Pro",color:"success"};
