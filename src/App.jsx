@@ -1559,203 +1559,204 @@ function ModuloReemissaoManual() {
         </div>
       </div>
 
-      {/* PASTE MODE */}
-      {mode==='paste'&&(
-        <div className="bg-gray-950 border border-gray-800 rounded-xl p-4 space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="flex flex-col gap-2">
-              <div className="text-xs font-mono text-gray-500 uppercase tracking-widest">Nova cotação do GDS</div>
-              <textarea value={taNovo} onChange={e=>setTaNovo(e.target.value)} rows={4}
-                className="bg-gray-900 border border-gray-700 rounded-lg text-green-400 font-mono text-xs p-3 resize-y focus:outline-none focus:border-cyan-400"
-                placeholder={"Cole aqui o bloco do novo valor\n(a partir da linha USD ...)"} />
+      <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-3">
+        {/* PASTE MODE */}
+        {mode==='paste'&&(
+          <div className="bg-gray-950 border border-gray-800 rounded-xl p-4 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3">
+              <div className="flex flex-col gap-2">
+                <div className="text-xs font-mono text-gray-500 uppercase tracking-widest">Nova cotação do GDS</div>
+                <textarea value={taNovo} onChange={e=>setTaNovo(e.target.value)} rows={3}
+                  className="bg-gray-900 border border-gray-700 rounded-lg text-green-400 font-mono text-xs p-3 resize-y focus:outline-none focus:border-cyan-400"
+                  placeholder={"Cole aqui o bloco do novo valor\n(a partir da linha USD ...)"} />
+              </div>
+              <div className="flex flex-col gap-2">
+                <div className="text-xs font-mono text-gray-500 uppercase tracking-widest">Bilhete original + taxas</div>
+                <textarea value={taCred} onChange={e=>setTaCred(e.target.value)} rows={3}
+                  className="bg-gray-900 border border-gray-700 rounded-lg text-green-400 font-mono text-xs p-3 resize-y focus:outline-none focus:border-cyan-400"
+                  placeholder={"Cole o bilhete original e os detalhes do TWD/TAX"} />
+              </div>
             </div>
-            <div className="flex flex-col gap-2">
-              <div className="text-xs font-mono text-gray-500 uppercase tracking-widest">Bilhete original + taxas</div>
-              <textarea value={taCred} onChange={e=>setTaCred(e.target.value)} rows={4}
-                className="bg-gray-900 border border-gray-700 rounded-lg text-green-400 font-mono text-xs p-3 resize-y focus:outline-none focus:border-cyan-400"
-                placeholder={"Cole o bilhete original e os detalhes do TWD/TAX"} />
-            </div>
+            <button onClick={processarMascara}
+              className="w-full py-3 bg-cyan-500/10 border border-cyan-500/40 text-cyan-400 font-mono text-sm font-bold rounded-lg hover:bg-cyan-500/20 transition-all">
+              Processar e calcular
+            </button>
+            {parseMsg&&(
+              <div className={`font-mono text-xs px-3 py-2 rounded border ${parseMsg.ok?'bg-green-500/10 border-green-500/30 text-green-400':'bg-red-500/10 border-red-500/30 text-red-400'}`}>
+                {parseMsg.text}
+              </div>
+            )}
           </div>
-          <button onClick={processarMascara}
-            className="w-full py-3 bg-cyan-500/10 border border-cyan-500/40 text-cyan-400 font-mono text-sm font-bold rounded-lg hover:bg-cyan-500/20 transition-all">
-            Processar e calcular
-          </button>
-          {parseMsg&&(
-            <div className={`font-mono text-xs px-3 py-2 rounded border ${parseMsg.ok?'bg-green-500/10 border-green-500/30 text-green-400':'bg-red-500/10 border-red-500/30 text-red-400'}`}>
-              {parseMsg.text}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* RESUMO */}
-      <div className="bg-gray-950 border border-cyan-500/30 rounded-2xl px-4 py-3">
-        <div className="flex justify-between items-baseline gap-3">
-          <span className="text-white font-mono font-bold">TOTAL A COBRAR</span>
-          <span className="text-orange-400 font-mono font-bold text-2xl">{brl(total)}</span>
-        </div>
-        <div className="flex flex-wrap gap-2 mt-3">
-          <Button onClick={copiar}>{copied?'✓ Copiado!':'📋 Copiar resultado'}</Button>
-          <Button variant="secondary" onClick={()=>{setTaxes([]);setTaNovo('');setTaCred('');setParseMsg(null);setMform({passageiro:'',passageiros:'',rota:'',roteiro:'',loc:'',ticketOriginal:'',dataEmissao:new Date().toISOString().split('T')[0]});}}>🗑 Limpar</Button>
-        </div>
-        <details className="mt-3 border-t border-gray-800">
-          <summary className="cursor-pointer py-2 text-sm font-semibold text-gray-300">Detalhar cálculo</summary>
-          {[
-            {label:'OLD BASE FARE',val:`USD ${(parseFloat(oldUSD)||0).toFixed(2)} = ${brl(oldBRL)}`},
-            {label:'NEW BASE FARE',val:`USD ${(parseFloat(newUSD)||0).toFixed(2)} = ${brl(newBRL)}`},
-            {label:'FARE BALANCE',val:brl(fareBalance)},
-            {label:'TAX BALANCE',val:brl(taxBalance)},
-            {label:'PENALTY',val:brl(penalty)},
-            {label:`FEE  USD ${feeUSD} × ${cambio}`,val:brl(feeBRL)},
-            {label:'RAV',val:brl(ravCalc)},
-          ].map(r=>(
-            <div key={r.label} className="flex justify-between items-baseline py-2 border-b border-gray-800 text-sm font-mono">
-              <span className="text-gray-500">{r.label}</span>
-              <span className="text-gray-300">{r.val}</span>
-            </div>
-          ))}
-        </details>
-      </div>
-
-      {/* DADOS DO CLIENTE */}
-      <details className={panelClass}>
-        <summary className={panelTitle}>Dados para o cliente</summary>
-        <div className="pb-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-            <Input label="Data" type="date" value={mform.dataEmissao} onChange={e=>updM('dataEmissao',e.target.value)} />
-            <Input label="Passageiro (simples)" value={mform.passageiro} onChange={e=>updM('passageiro',e.target.value)} placeholder="Nome completo" />
-            <Input label="LOC (Localizador)" value={mform.loc} onChange={e=>updM('loc',e.target.value)} placeholder="Ex: B2C7JN" />
-            <Input label="Ticket Original" value={mform.ticketOriginal} onChange={e=>updM('ticketOriginal',e.target.value)} placeholder="Número do bilhete" />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Textarea label="Passageiros (múltiplos)" value={mform.passageiros} onChange={e=>updM('passageiros',e.target.value)}
-              rows={3} placeholder={"1.SOBRENOME/NOME TITLE\n2.SOBRENOME/NOME TITLE"} />
-            <Textarea label="Roteiro (voos GDS)" value={mform.roteiro} onChange={e=>updM('roteiro',e.target.value)}
-              rows={3} placeholder={"3 AF415 A 10MAY 7 FORCDG HK2 1955 0925\n4 AF111 Y 26JUN 4 PVGCDG HK1 2130 0550+1"} />
-          </div>
-          <div className="mt-3">
-            <Input label="Rota (simples)" value={mform.rota} onChange={e=>updM('rota',e.target.value)} placeholder="Ex: GRU-CDG-NRT" />
-          </div>
-        </div>
-      </details>
-
-      {/* CONFIG */}
-      <details className={panelClass}>
-        <summary className={panelTitle}>Configuração · câmbio, FEE, RAV, markup e multa</summary>
-        <div className="pb-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {[
-              {label:'CÂMBIO (1 USD =)',key:'cambio',unit:'BRL'},
-              {label:'FEE AGÊNCIA',key:'feeUSD',unit:'USD'},
-              {label:'RAV MÍNIMO',key:'rav',unit:'BRL'},
-              {label:'RAV %',key:'ravPct',unit:'%'},
-              {label:'MARKUP %',key:'markupPct',unit:'%'},
-              {label:'PENALIDADE',key:'penalty',unit:'BRL'},
-            ].map(f=>(
-              <div key={f.key} className="flex flex-col gap-1">
-                <label className="text-xs font-mono text-gray-400">{f.label}</label>
-                <div className="relative">
-                  <input type="number" value={cfg[f.key]} onChange={e=>updCfg(f.key,e.target.value)}
-                    className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-500 pr-10" />
-                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono">{f.unit}</span>
+        )}
+        {/* CONFIG */}
+        <details className={panelClass}>
+          <summary className={panelTitle}>Configuração · câmbio, FEE, RAV, markup e multa</summary>
+          <div className="pb-4">
+            <div className="grid grid-cols-2 gap-4">
+              {[
+                {label:'CÂMBIO (1 USD =)',key:'cambio',unit:'BRL'},
+                {label:'FEE AGÊNCIA',key:'feeUSD',unit:'USD'},
+                {label:'RAV MÍNIMO',key:'rav',unit:'BRL'},
+                {label:'RAV %',key:'ravPct',unit:'%'},
+                {label:'MARKUP %',key:'markupPct',unit:'%'},
+                {label:'PENALIDADE',key:'penalty',unit:'BRL'},
+              ].map(f=>(
+                <div key={f.key} className="flex flex-col gap-1">
+                  <label className="text-xs font-mono text-gray-400">{f.label}</label>
+                  <div className="relative">
+                    <input type="number" value={cfg[f.key]} onChange={e=>updCfg(f.key,e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-500 pr-10" />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono">{f.unit}</span>
+                  </div>
                 </div>
+              ))}
+            </div>
+          </div>
+        </details>
+        {/* TARIFA BASE */}
+        <details key={mode} open={mode === "manual"} className={panelClass}>
+          <summary className={panelTitle}>Tarifas base · {brl(fareBalance)} de diferença</summary>
+          <div className="pb-4">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-mono text-gray-400">OLD BASE FARE</label>
+                <div className="relative">
+                  <input type="number" value={oldUSD} onChange={e=>setOldUSD(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-500 pr-10" />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono">USD</span>
+                </div>
+                <div className="text-xs text-gray-400 font-mono">= {brl(oldBRL)}</div>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-mono text-gray-400">NEW BASE FARE</label>
+                <div className="relative">
+                  <input type="number" value={newUSD} onChange={e=>setNewUSD(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-500 pr-10" />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono">USD</span>
+                </div>
+                <div className="text-xs text-gray-400 font-mono">= {brl(newBRL)}</div>
+              </div>
+            </div>
+            <div className="mt-3 pt-3 border-t border-gray-100 text-sm font-mono font-bold text-gray-700">
+              FARE BALANCE: <span className={fareBalance>0?'text-orange-500':'text-gray-400'}>{brl(fareBalance)}</span>
+            </div>
+          </div>
+        </details>
+        </div>
+        <div className="min-w-0">
+        {/* TAXAS */}
+        <section className={panelClass}>
+          <h3 className="py-3 font-semibold text-sm text-gray-800">Comparativo de taxas</h3>
+          <div className="pb-4">
+            <div className="max-h-80 overflow-auto">
+              <table className="w-full text-sm font-mono">
+                <thead className="sticky top-0 bg-white">
+                  <tr className="text-xs text-gray-400 border-b border-gray-100">
+                    <th className="text-left py-2 w-16">CÓD</th>
+                    <th className="text-right py-2">NOVA (BRL)</th>
+                    <th className="text-right py-2">CRÉDITO (BRL)</th>
+                    <th className="text-right py-2 text-orange-400">DIFERENÇA</th>
+                    <th className="w-8"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {taxes.map((t,i)=>{
+                    const d=taxDiff(t.nova,t.cred);
+                    return(
+                      <tr key={i} className="border-b border-gray-50">
+                        <td className="py-1 text-cyan-600 font-bold">{t.code}</td>
+                        <td className="py-1 px-1">
+                          <input type="number" value={t.nova} step="0.01"
+                            onChange={e=>updTax(i,'nova',e.target.value)}
+                            className={inputCls} />
+                        </td>
+                        <td className="py-1 px-1">
+                          <input type="number" value={t.cred} step="0.01"
+                            onChange={e=>updTax(i,'cred',e.target.value)}
+                            className={inputCls} />
+                        </td>
+                        <td className={`py-1 text-right font-bold ${d>0?'text-orange-500':'text-gray-200'}`}>
+                          {d>0?brl(d):'—'}
+                        </td>
+                        <td className="py-1 text-center">
+                          <button onClick={()=>removeTax(i)} className="text-gray-300 hover:text-red-400 transition-colors text-lg leading-none">×</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-dashed border-gray-200 items-center">
+              <input type="text" placeholder="CÓD" maxLength={4} value={newCode} onChange={e=>setNewCode(e.target.value)}
+                className="w-16 bg-gray-50 border border-gray-200 rounded px-2 py-1 text-sm font-mono uppercase focus:outline-none focus:border-blue-500" />
+              <input type="number" placeholder="Nova" value={newNova} onChange={e=>setNewNova(e.target.value)}
+                className="w-28 bg-gray-50 border border-gray-200 rounded px-2 py-1 text-sm font-mono focus:outline-none focus:border-blue-500 text-right" />
+              <input type="number" placeholder="Crédito" value={newCred} onChange={e=>setNewCred(e.target.value)}
+                className="w-28 bg-gray-50 border border-gray-200 rounded px-2 py-1 text-sm font-mono focus:outline-none focus:border-blue-500 text-right" />
+              <button onClick={addTax}
+                className="px-3 py-1 bg-cyan-50 border border-cyan-300 text-cyan-700 rounded text-xs font-mono font-bold hover:bg-cyan-100 transition-all whitespace-nowrap">
+                + Adicionar
+              </button>
+            </div>
+            <div className="mt-3 pt-3 border-t border-gray-100 text-sm font-mono font-bold text-gray-700">
+              TAX BALANCE: <span className={taxBalance>0?'text-orange-500':'text-gray-400'}>{brl(taxBalance)}</span>
+            </div>
+          </div>
+        </section>
+        </div>
+        <div className="min-w-0 space-y-3">
+        {/* RESUMO */}
+        <div className="bg-gray-950 border border-cyan-500/30 rounded-2xl px-4 py-3">
+          <div className="flex justify-between items-baseline gap-3">
+            <span className="text-white font-mono font-bold">TOTAL A COBRAR</span>
+            <span className="text-orange-400 font-mono font-bold text-2xl">{brl(total)}</span>
+          </div>
+          <div className="flex flex-wrap gap-2 mt-3">
+            <Button onClick={copiar}>{copied?'✓ Copiado!':'📋 Copiar resultado'}</Button>
+            <Button variant="secondary" onClick={()=>{setTaxes([]);setTaNovo('');setTaCred('');setParseMsg(null);setMform({passageiro:'',passageiros:'',rota:'',roteiro:'',loc:'',ticketOriginal:'',dataEmissao:new Date().toISOString().split('T')[0]});}}>🗑 Limpar</Button>
+          </div>
+          <div className="mt-3 border-t border-gray-800">
+            {[
+              {label:'OLD BASE FARE',val:`USD ${(parseFloat(oldUSD)||0).toFixed(2)} = ${brl(oldBRL)}`},
+              {label:'NEW BASE FARE',val:`USD ${(parseFloat(newUSD)||0).toFixed(2)} = ${brl(newBRL)}`},
+              {label:'FARE BALANCE',val:brl(fareBalance)},
+              {label:'TAX BALANCE',val:brl(taxBalance)},
+              {label:'PENALTY',val:brl(penalty)},
+              {label:`FEE  USD ${feeUSD} × ${cambio}`,val:brl(feeBRL)},
+              {label:'RAV',val:brl(ravCalc)},
+            ].map(r=>(
+              <div key={r.label} className="flex justify-between items-baseline gap-2 py-1 border-b border-gray-800 text-xs font-mono">
+                <span className="text-gray-400">{r.label}</span>
+                <span className="text-right text-gray-300">{r.val}</span>
               </div>
             ))}
           </div>
         </div>
-      </details>
-
-      {/* TARIFA BASE */}
-      <details key={mode} open={mode === "manual"} className={panelClass}>
-        <summary className={panelTitle}>Tarifas base · {brl(fareBalance)} de diferença</summary>
-        <div className="pb-4">
-          <div className="grid grid-cols-2 gap-6">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-mono text-gray-400">OLD BASE FARE</label>
-              <div className="relative">
-                <input type="number" value={oldUSD} onChange={e=>setOldUSD(e.target.value)}
-                  className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-500 pr-10" />
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono">USD</span>
-              </div>
-              <div className="text-xs text-gray-400 font-mono">= {brl(oldBRL)}</div>
+        {/* DADOS DO CLIENTE */}
+        <details className={panelClass}>
+          <summary className={panelTitle}>Dados para o cliente</summary>
+          <div className="pb-4">
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <Input label="Data" type="date" value={mform.dataEmissao} onChange={e=>updM('dataEmissao',e.target.value)} />
+              <Input label="Passageiro (simples)" value={mform.passageiro} onChange={e=>updM('passageiro',e.target.value)} placeholder="Nome completo" />
+              <Input label="LOC (Localizador)" value={mform.loc} onChange={e=>updM('loc',e.target.value)} placeholder="Ex: B2C7JN" />
+              <Input label="Ticket Original" value={mform.ticketOriginal} onChange={e=>updM('ticketOriginal',e.target.value)} placeholder="Número do bilhete" />
             </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-mono text-gray-400">NEW BASE FARE</label>
-              <div className="relative">
-                <input type="number" value={newUSD} onChange={e=>setNewUSD(e.target.value)}
-                  className="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-500 pr-10" />
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono">USD</span>
-              </div>
-              <div className="text-xs text-gray-400 font-mono">= {brl(newBRL)}</div>
+            <div className="grid grid-cols-2 gap-4">
+              <Textarea label="Passageiros (múltiplos)" value={mform.passageiros} onChange={e=>updM('passageiros',e.target.value)}
+                rows={3} placeholder={"1.SOBRENOME/NOME TITLE\n2.SOBRENOME/NOME TITLE"} />
+              <Textarea label="Roteiro (voos GDS)" value={mform.roteiro} onChange={e=>updM('roteiro',e.target.value)}
+                rows={3} placeholder={"3 AF415 A 10MAY 7 FORCDG HK2 1955 0925\n4 AF111 Y 26JUN 4 PVGCDG HK1 2130 0550+1"} />
+            </div>
+            <div className="mt-3">
+              <Input label="Rota (simples)" value={mform.rota} onChange={e=>updM('rota',e.target.value)} placeholder="Ex: GRU-CDG-NRT" />
             </div>
           </div>
-          <div className="mt-3 pt-3 border-t border-gray-100 text-sm font-mono font-bold text-gray-700">
-            FARE BALANCE: <span className={fareBalance>0?'text-orange-500':'text-gray-400'}>{brl(fareBalance)}</span>
-          </div>
+        </details>
         </div>
-      </details>
-
-      {/* TAXAS */}
-      <details key={mode} open={mode === "manual"} className={panelClass}>
-        <summary className={panelTitle}>Taxas · {brl(taxBalance)} de diferença</summary>
-        <div className="pb-4">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm font-mono">
-              <thead>
-                <tr className="text-xs text-gray-400 border-b border-gray-100">
-                  <th className="text-left py-2 w-16">CÓD</th>
-                  <th className="text-right py-2">NOVA (BRL)</th>
-                  <th className="text-right py-2">CRÉDITO (BRL)</th>
-                  <th className="text-right py-2 text-orange-400">DIFERENÇA</th>
-                  <th className="w-8"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {taxes.map((t,i)=>{
-                  const d=taxDiff(t.nova,t.cred);
-                  return(
-                    <tr key={i} className="border-b border-gray-50">
-                      <td className="py-1.5 text-cyan-600 font-bold">{t.code}</td>
-                      <td className="py-1.5 px-1">
-                        <input type="number" value={t.nova} step="0.01"
-                          onChange={e=>updTax(i,'nova',e.target.value)}
-                          className={inputCls} />
-                      </td>
-                      <td className="py-1.5 px-1">
-                        <input type="number" value={t.cred} step="0.01"
-                          onChange={e=>updTax(i,'cred',e.target.value)}
-                          className={inputCls} />
-                      </td>
-                      <td className={`py-1.5 text-right font-bold ${d>0?'text-orange-500':'text-gray-200'}`}>
-                        {d>0?brl(d):'—'}
-                      </td>
-                      <td className="py-1.5 text-center">
-                        <button onClick={()=>removeTax(i)} className="text-gray-300 hover:text-red-400 transition-colors text-lg leading-none">×</button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-dashed border-gray-200 items-center">
-            <input type="text" placeholder="CÓD" maxLength={4} value={newCode} onChange={e=>setNewCode(e.target.value)}
-              className="w-16 bg-gray-50 border border-gray-200 rounded px-2 py-1.5 text-sm font-mono uppercase focus:outline-none focus:border-blue-500" />
-            <input type="number" placeholder="Nova" value={newNova} onChange={e=>setNewNova(e.target.value)}
-              className="w-28 bg-gray-50 border border-gray-200 rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-500 text-right" />
-            <input type="number" placeholder="Crédito" value={newCred} onChange={e=>setNewCred(e.target.value)}
-              className="w-28 bg-gray-50 border border-gray-200 rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-500 text-right" />
-            <button onClick={addTax}
-              className="px-3 py-1.5 bg-cyan-50 border border-cyan-300 text-cyan-700 rounded text-xs font-mono font-bold hover:bg-cyan-100 transition-all whitespace-nowrap">
-              + Adicionar
-            </button>
-          </div>
-          <div className="mt-3 pt-3 border-t border-gray-100 text-sm font-mono font-bold text-gray-700">
-            TAX BALANCE: <span className={taxBalance>0?'text-orange-500':'text-gray-400'}>{brl(taxBalance)}</span>
-          </div>
-        </div>
-      </details>
-
+      </div>
     </div>
   );
 }
