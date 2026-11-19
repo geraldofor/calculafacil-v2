@@ -1369,7 +1369,7 @@ function ModuloReemissaoManual() {
       const t=tokens[i];
       if(t==='BRL'){
         const next=tokens[i+1]||'';
-        const mN=next.match(/^([\d\.]+)(?:-([A-Z]{2,3}))?$/);
+        const mN=next.match(/^([\d\.]+)(?:-([A-Z][A-Z0-9]{1,2}))?$/);
         if(!mN){i++;continue;}
         const val=parseFloat(mN[1]); const nc=mN[2]||null;
         if(nc==='XT'){pending=null;i++;continue;}
@@ -1377,9 +1377,9 @@ function ModuloReemissaoManual() {
         else{if(nc)pairs.push({code:nc,val});}
         i++;continue;
       }
-      const mA=t.match(/^([\d\.]+)-([A-Z]{2,3})$/);
+      const mA=t.match(/^([\d\.]+)-([A-Z][A-Z0-9]{1,2})$/);
       if(mA){if(pending){pairs.push({code:pending,val:parseFloat(mA[1])});pending=mA[2];}else{pairs.push({code:mA[2],val:parseFloat(mA[1])});}continue;}
-      const mC=t.match(/^-([A-Z]{2,3})$/);
+      const mC=t.match(/^-([A-Z][A-Z0-9]{1,2})$/);
       if(mC){pending=mC[1];continue;}
     }
     const clean=pairs.filter(p=>p.val>0&&p.code!=='XT');
@@ -1398,14 +1398,14 @@ function ModuloReemissaoManual() {
     const rawMap={};
 
     // Formato 1: PD01 BRL 105.76BR ou TX01 BRL 105.76BR (prefixo sequencial)
-    const pdRx=/(?:PD|TX)\d+\s+BRL\s+([\d\.]+)([A-Z]{2,3})/g;
+    const pdRx=/(?:PD|TX)\d+\s+BRL\s+([\d\.]+)([A-Z][A-Z0-9]{1,2})/g;
     while((m=pdRx.exec(flat))!==null){
       rawMap[m[2]]=(rawMap[m[2]]||0)+parseFloat(m[1]);
     }
 
     // Formato 2: inline — BRL 105.76BR BRL 51.53QO (sem prefixo)
     // Roda sempre — ignora posições já capturadas pelo Formato 1
-    const inlineRx=/BRL\s+([\d\.]+)([A-Z]{2,3})\b/g;
+    const inlineRx=/BRL\s+([\d\.]+)([A-Z][A-Z0-9]{1,2})\b/g;
     while((m=inlineRx.exec(flat))!==null){
       const cod=m[2], val=parseFloat(m[1]);
       // Exclui códigos de moeda e totais
@@ -1452,8 +1452,8 @@ function ModuloReemissaoManual() {
   const penalty=parseFloat(cfg.penalty)||0;
   const oldBRL=(parseFloat(oldUSD)||0)*cambio;
   const newBRL=(parseFloat(newUSD)||0)*cambio;
-  // Fare balance = diferença de tarifa em BRL
-  const fareBalanceOriginal=Math.max(0,newBRL-oldBRL);
+  const fareBalanceUSD=Math.max(0,(parseFloat(newUSD)||0)-(parseFloat(oldUSD)||0));
+  const fareBalanceOriginal=fareBalanceUSD*cambio;
   // Markup aplicado em BRL sobre a diferença de tarifa
   const markupPctM=parseFloat(cfg.markupPct||'0')||0;
   const fareBalance=markupPctM>0 ? fareBalanceOriginal/(1-markupPctM/100) : fareBalanceOriginal;
@@ -1520,7 +1520,7 @@ function ModuloReemissaoManual() {
     out+=`\n${sepM}\n--- CONFERÊNCIA (não enviar) ---\n${sepM}\n`;
     out+=`OLD BASE FARE: USD ${o.toFixed(2)} = ${brl(oldBRL)}\n`;
     out+=`NEW BASE FARE: USD ${n.toFixed(2)} = ${brl(newBRL)}\n`;
-    out+=`FARE BALANCE (GDS):  ${brl(fareBalanceOriginal)}\n`;
+    out+=`FARE BALANCE (GDS):  USD ${fareBalanceUSD.toFixed(2)} × ${cambio.toFixed(4)} = ${brl(fareBalanceOriginal)}\n`;
     if(markupPctM>0){
       out+=`Markup ${markupPctM}%:          ${brl(fareBalance - fareBalanceOriginal)}\n`;
       out+=`FARE BALANCE c/mk:   ${brl(fareBalance)}\n`;
@@ -1536,9 +1536,10 @@ function ModuloReemissaoManual() {
     return out;
   };
 
-  const copiar=()=>{navigator.clipboard.writeText(gerarTexto());setCopied(true);setTimeout(()=>setCopied(false),2000);};
+  const resumoCopiavel = gerarTexto();
+  const copiar=()=>{navigator.clipboard.writeText(resumoCopiavel);setCopied(true);setTimeout(()=>setCopied(false),2000);};
 
-  const inputCls="w-full bg-gray-900 border border-gray-700 rounded text-sm font-mono text-green-400 px-2 py-1.5 text-right focus:outline-none focus:border-cyan-400";
+  const inputCls="w-full min-w-0 bg-white border border-slate-200 rounded-md text-sm font-mono text-slate-800 px-2 py-1 text-right focus:outline-none focus:border-cyan-400";
 
   const panelClass = "bg-white rounded-xl border border-gray-200 px-4";
   const panelTitle = "cursor-pointer py-3 font-semibold text-sm text-gray-800";
@@ -1647,13 +1648,16 @@ function ModuloReemissaoManual() {
         <div className="min-w-0">
         {/* TAXAS */}
         <section className={panelClass}>
-          <h3 className="py-3 font-semibold text-sm text-gray-800">Comparativo de taxas</h3>
+          <div className="flex flex-wrap justify-between items-center gap-2 py-3">
+            <h3 className="font-bold text-sm text-slate-900">Comparativo de taxas</h3>
+            <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">{taxes.length} taxas</span>
+          </div>
           <div className="pb-4">
-            <div className="max-h-80 overflow-auto">
-              <table className="w-full text-sm font-mono">
-                <thead className="sticky top-0 bg-white">
-                  <tr className="text-xs text-gray-400 border-b border-gray-100">
-                    <th className="text-left py-2 w-16">CÓD</th>
+            <div className="max-h-96 overflow-auto rounded-lg border border-slate-200">
+              <table className="w-full min-w-[300px] text-sm font-mono">
+                <thead className="sticky top-0 bg-slate-100">
+                  <tr className="text-xs text-slate-600 border-b border-slate-200">
+                    <th className="text-left px-2 py-2 w-12">CÓD</th>
                     <th className="text-right py-2">NOVA (BRL)</th>
                     <th className="text-right py-2">CRÉDITO (BRL)</th>
                     <th className="text-right py-2 text-orange-400">DIFERENÇA</th>
@@ -1664,8 +1668,8 @@ function ModuloReemissaoManual() {
                   {taxes.map((t,i)=>{
                     const d=taxDiff(t.nova,t.cred);
                     return(
-                      <tr key={i} className="border-b border-gray-50">
-                        <td className="py-1 text-cyan-600 font-bold">{t.code}</td>
+                      <tr key={i} className="border-b border-slate-100 odd:bg-white even:bg-slate-50">
+                        <td className="px-2 py-1 text-slate-800 font-bold">{t.code}</td>
                         <td className="py-1 px-1">
                           <input type="number" value={t.nova} step="0.01"
                             onChange={e=>updTax(i,'nova',e.target.value)}
@@ -1676,7 +1680,7 @@ function ModuloReemissaoManual() {
                             onChange={e=>updTax(i,'cred',e.target.value)}
                             className={inputCls} />
                         </td>
-                        <td className={`py-1 text-right font-bold ${d>0?'text-orange-500':'text-gray-200'}`}>
+                        <td className={`py-1 text-right font-bold whitespace-nowrap ${d>0?'text-orange-700':'text-slate-400'}`}>
                           {d>0?brl(d):'—'}
                         </td>
                         <td className="py-1 text-center">
@@ -1701,7 +1705,7 @@ function ModuloReemissaoManual() {
               </button>
             </div>
             <div className="mt-3 pt-3 border-t border-gray-100 text-sm font-mono font-bold text-gray-700">
-              TAX BALANCE: <span className={taxBalance>0?'text-orange-500':'text-gray-400'}>{brl(taxBalance)}</span>
+              Diferença de taxas <span className={taxBalance>0?'text-orange-700':'text-gray-500'}>{brl(taxBalance)}</span>
             </div>
           </div>
         </section>
@@ -1713,15 +1717,12 @@ function ModuloReemissaoManual() {
             <span className="text-white font-mono font-bold">TOTAL A COBRAR</span>
             <span className="text-orange-400 font-mono font-bold text-2xl">{brl(total)}</span>
           </div>
-          <div className="flex flex-wrap gap-2 mt-3">
-            <Button onClick={copiar}>{copied?'✓ Copiado!':'📋 Copiar resultado'}</Button>
-            <Button variant="secondary" onClick={()=>{setTaxes([]);setTaNovo('');setTaCred('');setParseMsg(null);setMform({passageiro:'',passageiros:'',rota:'',roteiro:'',loc:'',ticketOriginal:'',dataEmissao:new Date().toISOString().split('T')[0]});}}>🗑 Limpar</Button>
-          </div>
           <div className="mt-3 border-t border-gray-800">
             {[
               {label:'OLD BASE FARE',val:`USD ${(parseFloat(oldUSD)||0).toFixed(2)} = ${brl(oldBRL)}`},
               {label:'NEW BASE FARE',val:`USD ${(parseFloat(newUSD)||0).toFixed(2)} = ${brl(newBRL)}`},
-              {label:'FARE BALANCE',val:brl(fareBalance)},
+              {label:'Diferença em USD × câmbio',val:`USD ${fareBalanceUSD.toFixed(2)} × ${cambio.toFixed(4)}`},
+              {label:'Diferença de tarifa',val:brl(fareBalance)},
               {label:'TAX BALANCE',val:brl(taxBalance)},
               {label:'PENALTY',val:brl(penalty)},
               {label:`FEE  USD ${feeUSD} × ${cambio}`,val:brl(feeBRL)},
@@ -1732,6 +1733,13 @@ function ModuloReemissaoManual() {
                 <span className="text-right text-gray-300">{r.val}</span>
               </div>
             ))}
+          </div>
+          <label className="block mt-3 mb-1 text-sm font-semibold text-gray-200" htmlFor="reemissao-resumo">Resumo para copiar</label>
+          <textarea id="reemissao-resumo" readOnly value={resumoCopiavel} rows={7}
+            className="block w-full resize-y rounded-lg border border-gray-700 bg-gray-900 p-2 font-mono text-xs text-gray-200" />
+          <div className="flex flex-wrap gap-2 mt-3">
+            <Button onClick={copiar}>{copied?'✓ Copiado!':'📋 Copiar resultado'}</Button>
+            <Button variant="secondary" onClick={()=>{setTaxes([]);setTaNovo('');setTaCred('');setParseMsg(null);setMform({passageiro:'',passageiros:'',rota:'',roteiro:'',loc:'',ticketOriginal:'',dataEmissao:new Date().toISOString().split('T')[0]});}}>🗑 Limpar</Button>
           </div>
         </div>
         {/* DADOS DO CLIENTE */}
