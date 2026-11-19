@@ -708,7 +708,7 @@ function ModuloTarifas() {
     setResultado({p,tUSD,tBRL,totalBRL,ravVal,feeVal,totalFinal,tUSDOriginal,tBRLOriginal,totalBRLOriginal,comMarkup});
   };
 
-  const formatOutput=()=>{
+  const formatOutput=(includeConference = true)=>{
     if(!resultado)return"";
     const{p,tUSD,tBRL,totalBRL,ravVal,feeVal,totalFinal,tUSDOriginal,tBRLOriginal,comMarkup}=resultado;
     const cab = cabine || p.fareFamily || "-";
@@ -737,7 +737,7 @@ function ModuloTarifas() {
       return `${label.padEnd(24, ' ')} ${currency} ${val.toFixed(2).padStart(12, ' ')}`;
     };
 
-    out += formatValueLine('Tarifa Base (USD):', 'USD', tUSDOriginal) + '\n';
+    out += formatValueLine('Tarifa Base (USD):', 'USD', tUSD) + '\n';
     out += formatValueLine('Tarifa BRL:', 'BRL', tBRL) + '\n';
     out += formatValueLine('Taxas:', 'BRL', totalBRL - tBRL) + '\n';
     out += formatValueLine('Total Parcial:', 'BRL', totalBRL) + '\n';
@@ -752,6 +752,8 @@ function ModuloTarifas() {
       if(multaRem&&multaRem!=="N/A")out+=`Reemissão: USD ${multaRem}\n`;
       if(multaReemb&&multaReemb!=="N/A")out+=`Reembolso: USD ${multaReemb}\n`;
     }
+
+    if (!includeConference) return out.trimEnd();
 
     // ── CONFERÊNCIA (não enviar) ──
     out+=`\n${sep}\n--- CONFERÊNCIA (não enviar) ---\n${sep}\n`;
@@ -772,7 +774,7 @@ function ModuloTarifas() {
     return out;
   };
 
-  const copiar=()=>{navigator.clipboard.writeText(formatOutput());setCopied(true);setTimeout(()=>setCopied(false),2000);};
+  const copiar=()=>{navigator.clipboard.writeText(formatOutput(false));setCopied(true);setTimeout(()=>setCopied(false),2000);};
   const limpar=()=>{setCotacao("");setRoteiro("");setResultado(null);setVoo("");setCabine("");setBagagem("");setMultaRem("");setMultaReemb("");};
   const p=cotacao?parseCotacao(cotacao,gds):null;
   const temDados=p&&(p.tUSD>0||p.totalBRL>0);
