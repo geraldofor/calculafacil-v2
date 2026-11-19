@@ -561,7 +561,14 @@ function ModuloTarifas() {
     const raw = text.toUpperCase();
     let tUSD=0,tBRL=0,totalBRL=0,exchangeRate=0,fareFamily="";
     
-    if(gdsType==="AMADEUS"){
+    // O FQP do Galileo identifica a base em USD, o equivalente e o total em BRL.
+    const galileoFqp = raw.match(/^[ \t]*FARE[ \t]+USD[ \t]*(\d+\.\d{2})[ \t]+EQU[ \t]+BRL[ \t]*(\d+\.\d{2})(?:(?!^[ \t]*FARE[ \t]+USD)[\s\S])*?\bTOT[ \t]+BRL[ \t]*(\d+\.\d{2})\b/m);
+    if (galileoFqp) {
+      tUSD = Number(galileoFqp[1]);
+      tBRL = Number(galileoFqp[2]);
+      totalBRL = Number(galileoFqp[3]);
+      exchangeRate = tUSD > 0 ? tBRL / tUSD : 0;
+    } else if(gdsType==="AMADEUS"){
       // Captura do USD
       const usdM=raw.match(/^USD\s+([\d,\.]+)/m);
       tUSD=usdM?parseFloat(usdM[1].replace(",",".")):0;
@@ -699,7 +706,7 @@ function ModuloTarifas() {
       const galM=raw.match(/FQG\s*\d+\s+BRL\s+([\d\.]+)\s+([\d\.]+)\s+([\d\.]+)/i);
       if(galM){tBRL=parseFloat(galM[1]);totalBRL=parseFloat(galM[3]);}
       const bsrM=raw.match(/BSR\s*1USD\s*[-=]\s*([\d\.]+)/i);
-      if(bsrM&&tBRL>0){exchangeRate=parseFloat(bsrM[1]);tUSD=tBRL/exchangeRate;}
+      if(bsrM&&tBRL>0){exchangeRate=parseFloat(bsrM[1]);if(exchangeRate>0)tUSD=tBRL/exchangeRate;}
     } else if(gdsType==="SABRE"){
       const usdM=raw.match(/USD\s*([\d\.]+)/i);tUSD=usdM?parseFloat(usdM[1]):0;
       const brlM=raw.match(/BRL\s*([\d\.]+)/i);tBRL=brlM?parseFloat(brlM[1]):0;
@@ -817,7 +824,7 @@ function ModuloTarifas() {
       </Card>
       <Card>
         <Textarea label="Cole a cotação GDS aqui" value={cotacao} onChange={e=>setCotacao(e.target.value)} rows={7}
-          placeholder={gds==="AMADEUS"?"USD 1857.00  26MAY26FOR IB X/MAD...\nBRL  9804.96  14.00 297.00...\nBRL 10139.24\nRATE USED 1USD=5.28BRL\nFARE FAMILY:FC1:1-2:COMFORT":gds==="GALILEO"?"FQG 1 BRL 1234.56 334.28 1568.84\nBSR 1USD-5.28":"USD 1234.56\nBRL 6521.67\nBRL 6856.84 ADT"} />
+          placeholder={gds==="AMADEUS"?"USD 1857.00  26MAY26FOR IB X/MAD...\nBRL  9804.96  14.00 297.00...\nBRL 10139.24\nRATE USED 1USD=5.28BRL\nFARE FAMILY:FC1:1-2:COMFORT":gds==="GALILEO"?"FARE USD1910.00 EQU BRL11097.48 TAX ... TOT BRL12177.10\nOu FQG 1 BRL 1234.56 334.28 1568.84":"USD 1234.56\nBRL 6521.67\nBRL 6856.84 ADT"} />
       </Card>
       {temDados&&(
         <Card className="bg-blue-50 border-blue-200">
@@ -866,7 +873,9 @@ function ModuloTarifas() {
       </div>
       {!temDados&&cotacao.length>10&&(
         <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-sm text-yellow-700">
-          ⚠️ Não consegui detectar os dados. Verifique se a cotação contém <strong>USD</strong>, <strong>BRL total</strong> e <strong>RATE USED</strong>.
+          ⚠️ Não consegui detectar os dados. {gds==="GALILEO"
+            ? "Cole o bloco completo com FARE, EQU e TOT, ou a linha FQG."
+            : "Confira o GDS selecionado e cole o bloco completo com a tarifa e o total."}
         </div>
       )}
       {resultado&&<Terminal>{formatOutput()}</Terminal>}
