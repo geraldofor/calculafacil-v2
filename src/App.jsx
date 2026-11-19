@@ -1560,11 +1560,11 @@ function ModuloReemissaoManual() {
         </div>
       </div>
 
-      <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)_minmax(0,1fr)]">
-        <div className="min-w-0 space-y-3">
+      <div className="grid items-stretch gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)_minmax(0,1fr)]">
+        <div className="flex min-w-0 flex-col gap-3">
         {/* PASTE MODE */}
         {mode==='paste'&&(
-          <div className="bg-gray-950 border border-gray-800 rounded-xl p-4 space-y-3">
+          <div className="flex-1 bg-gray-950 border border-gray-800 rounded-xl p-4 space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3">
               <div className="flex flex-col gap-2">
                 <div className="text-xs font-mono text-gray-500 uppercase tracking-widest">Nova cotação do GDS</div>
@@ -1647,15 +1647,15 @@ function ModuloReemissaoManual() {
         </div>
         <div className="min-w-0">
         {/* TAXAS */}
-        <section className={panelClass}>
+        <section className={`${panelClass} flex h-full flex-col`}>
           <div className="flex flex-wrap justify-between items-center gap-2 py-3">
             <h3 className="font-bold text-sm text-slate-900">Comparativo de taxas</h3>
             <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">{taxes.length} taxas</span>
           </div>
-          <div className="pb-4">
-            <div className="max-h-96 overflow-auto rounded-lg border border-slate-200">
+          <div className="flex flex-1 flex-col pb-4">
+            <div className="overflow-x-auto rounded-lg border border-slate-200">
               <table className="w-full min-w-[300px] text-sm font-mono">
-                <thead className="sticky top-0 bg-slate-100">
+                <thead className="bg-slate-100">
                   <tr className="text-xs text-slate-600 border-b border-slate-200">
                     <th className="text-left px-2 py-2 w-12">CÓD</th>
                     <th className="text-right py-2">NOVA (BRL)</th>
@@ -1704,15 +1704,15 @@ function ModuloReemissaoManual() {
                 + Adicionar
               </button>
             </div>
-            <div className="mt-3 pt-3 border-t border-gray-100 text-sm font-mono font-bold text-gray-700">
+            <div className="mt-auto pt-3 text-sm font-mono font-bold text-gray-700">
               Diferença de taxas <span className={taxBalance>0?'text-orange-700':'text-gray-500'}>{brl(taxBalance)}</span>
             </div>
           </div>
         </section>
         </div>
-        <div className="min-w-0 space-y-3">
+        <div className="flex min-w-0 flex-col gap-3">
         {/* RESUMO */}
-        <div className="bg-gray-950 border border-cyan-500/30 rounded-2xl px-4 py-3">
+        <div className="flex-1 bg-gray-950 border border-cyan-500/30 rounded-2xl px-4 py-3">
           <div className="flex justify-between items-baseline gap-3">
             <span className="text-white font-mono font-bold">TOTAL A COBRAR</span>
             <span className="text-orange-400 font-mono font-bold text-2xl">{brl(total)}</span>
