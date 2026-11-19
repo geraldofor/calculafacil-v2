@@ -579,31 +579,30 @@ function ModuloTarifas() {
       if(rateM)exchangeRate=parseFloat(rateM[1].replace(",","."));
       if(!exchangeRate&&tUSD>0&&tBRL>0)exchangeRate=tBRL/tUSD;
       
-      // Itinerário da reserva com horários locais de saída e chegada.
-      const parisAirports = new Set(["PAR", "CDG", "ORY"]);
-      const cityCode = airport => parisAirports.has(airport) ? "PAR" : airport;
-      const reservationTimes = new Map();
-      const flightLines = raw.matchAll(/^ *\d+ +([A-Z0-9]{2}) *(\d{1,4}) +[A-Z] +(\d{2}[A-Z]{3}) +(?:[1-7] +)?([A-Z]{6}) +[A-Z]{2}\d+ +[^\r\n]*?\b([0-2]\d[0-5]\d) +([0-2]\d[0-5]\d)([+-]\d+)?(?= *(?:\*|$))/gm);
-      for (const [, airline, flight, date, airports, departure, arrival, dayOffset] of flightLines) {
-        const key = `${airline}:${Number(flight)}:${date}:${cityCode(airports.slice(0, 3))}`;
-        const entries = reservationTimes.get(key) || [];
-        entries.push({ destination: airports.slice(3), departure, arrival, dayOffset });
-        reservationTimes.set(key, entries);
+      // O TST pode usar o código da cidade onde a reserva usa o aeroporto.
+      const cityByAirport = { CDG: "PAR", ORY: "PAR", FCO: "ROM", CIA: "ROM", MXP: "MIL", LIN: "MIL", BGY: "MIL" };
+      const sameAirport = (airport, routeCode) =>
+        airport === routeCode || cityByAirport[airport] === routeCode || cityByAirport[routeCode] === airport;
+      const reservationSegments = [];
+      const flightLines = raw.matchAll(/^[ \t]*\d+[ \t]+([A-Z0-9]{2})[ \t]*(\d{1,4})[ \t]+([A-Z])[ \t]+(\d{2}[A-Z]{3})[ \t]+(?:[1-7][ \t]+)?([A-Z]{6})[ \t]+[A-Z]{2}\d+[ \t]+[^\r\n]*?\b((?:[01]\d|2[0-3])[0-5]\d)[ \t]+((?:[01]\d|2[0-3])[0-5]\d)([+-]\d+)?(?=[ \t]*(?:\*|$))/gm);
+      for (const [, al, flightNum, bk, date, airports, time, arrival, dayOffset] of flightLines) {
+        reservationSegments.push({
+          al, flightNum, bk, date, origin: airports.slice(0, 3), dest: airports.slice(3),
+          time, arrival, dayOffset
+        });
       }
       const formatTime = time => `${time.slice(0, 2)}:${time.slice(2)}`;
 
-      // Detecção inteligente do TST
-      const segments = parseSegments(raw);
+      const fareSegments = parseSegments(raw);
+      const segments = fareSegments.length ? fareSegments : reservationSegments;
       if (segments.length > 0) {
         const families = parseFareFamilies(raw);
-        
-        // Determina Franquia de Bagagem Combinada ou Unificada
-        const uniqueBags = [...new Set(segments.map(s => translateBaggage(s.bg, s.bk)))];
+        const uniqueBags = [...new Set(fareSegments.map(s => translateBaggage(s.bg, s.bk)))];
         let bagStr = '';
         if (uniqueBags.length === 1) {
           bagStr = uniqueBags[0];
-        } else {
-          bagStr = segments.map(s => `${s.origin}/${s.dest}: ${translateBaggage(s.bg, s.bk)}`).join(' | ');
+        } else if (uniqueBags.length > 1) {
+          bagStr = fareSegments.map(s => `${s.origin}/${s.dest}: ${translateBaggage(s.bg, s.bk)}`).join(' | ');
         }
 
         // Determina Cabines/Famílias Tarifárias combinadas ou únicas
@@ -631,15 +630,15 @@ function ModuloTarifas() {
           const orgStr = `${orgName} (${s.origin})`;
           const destStr = `${destName} (${s.dest})`;
           
-          const key = `${s.al}:${Number(s.flightNum)}:${s.date}:${cityCode(s.origin)}`;
-          const entries = reservationTimes.get(key) || [];
-          const directMatch = entries.find(entry => entry.destination === s.dest);
-          const cityMatch = entries.filter(entry =>
-            cityCode(entry.destination) === cityCode(s.dest)
+          const candidates = reservationSegments.filter(segment =>
+            segment.al === s.al && Number(segment.flightNum) === Number(s.flightNum) &&
+            segment.date === s.date && (!s.origin || sameAirport(segment.origin, s.origin)) &&
+            sameAirport(segment.dest, s.dest)
           );
-          const times = directMatch || (cityMatch.length === 1 ? cityMatch[0] : undefined);
-          const timeStr = formatTime(times?.departure || s.time);
-          const arrivalStr = times
+          const exactMatch = candidates.find(segment => segment.origin === s.origin && segment.dest === s.dest);
+          const times = s.arrival ? s : exactMatch || (candidates.length === 1 ? candidates[0] : s);
+          const timeStr = formatTime(times.time);
+          const arrivalStr = times.arrival
             ? ` ${formatTime(times.arrival)}${times.dayOffset ? ` (${times.dayOffset})` : ''}`
             : '';
 
