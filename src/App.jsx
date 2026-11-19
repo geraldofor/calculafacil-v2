@@ -568,6 +568,34 @@ function ModuloTarifas() {
       tBRL = Number(galileoFqp[2]);
       totalBRL = Number(galileoFqp[3]);
       exchangeRate = tUSD > 0 ? tBRL / tUSD : 0;
+      const flightLines = raw.matchAll(/^[ \t]*(\d+)[ \t]*\.[ \t]*([A-Z0-9]{2})[ \t]*(\d{1,4})[ \t]+([A-Z])[ \t]+(\d{2}[A-Z]{3})[ \t]+([A-Z]{3})([A-Z]{3})[ \t]+[A-Z]{2}\d+[ \t]+([0-2]\d[0-5]\d)[ \t]+(#?)([0-2]\d[0-5]\d)(?=[ \t]|$)/gm);
+      const baggageBySegment = new Map(
+        [...raw.matchAll(/^[ \t]*S(\d+)\b[^\r\n]*?[ \t]B-([A-Z0-9]+)\b/gm)]
+          .map(([, segment, baggage]) => [Number(segment), baggage])
+      );
+      const flights = [...flightLines].map(([, segment, airline, number, booking, date, origin, destination, departure, nextDay, arrival]) => ({
+        airline, number, booking, date, origin, destination, departure, arrival, nextDay,
+        baggage: baggageBySegment.get(Number(segment))
+      }));
+      if (flights.length) {
+        const airport = code => AIRPORTS[code] ? `${AIRPORTS[code]} (${code})` : code;
+        const time = value => `${value.slice(0, 2)}:${value.slice(2)}`;
+        const route = flights.map(flight =>
+          `${AIRLINES[flight.airline] || flight.airline} ${flight.number} ➔ ${flight.date} ➔ ${airport(flight.origin)} ${time(flight.departure)} ➔ ${airport(flight.destination)} ${time(flight.arrival)}${flight.nextDay ? " (+1)" : ""}`
+        ).join("\n");
+        const bagRows = flights.map(({ baggage }) => baggage?.replace(/^(\d+)PC$/, (_, pieces) => `${Number(pieces)} peça${Number(pieces) === 1 ? "" : "s"}`) || "");
+        const baggage = bagRows.every(bag => bag && bag === bagRows[0])
+          ? bagRows[0]
+          : flights.map((flight, index) => bagRows[index] && `${flight.origin}/${flight.destination}: ${bagRows[index]}`).filter(Boolean).join(" | ");
+        const bookingClasses = [...new Set(flights.map(flight => flight.booking))];
+        setTimeout(() => {
+          setVoo([...new Set(flights.map(flight => flight.airline))].join(" / "));
+          setCabine(`Classe ${bookingClasses.join(" / ")}`);
+          if (baggage) setBagagem(baggage);
+          setRoteiro(route);
+        }, 50);
+      }
+
     } else if(gdsType==="AMADEUS"){
       // Captura do USD
       const usdM=raw.match(/^USD\s+([\d,\.]+)/m);
