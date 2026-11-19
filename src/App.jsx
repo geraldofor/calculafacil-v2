@@ -579,6 +579,19 @@ function ModuloTarifas() {
       if(rateM)exchangeRate=parseFloat(rateM[1].replace(",","."));
       if(!exchangeRate&&tUSD>0&&tBRL>0)exchangeRate=tBRL/tUSD;
       
+      // Itinerário da reserva com horários locais de saída e chegada.
+      const parisAirports = new Set(["PAR", "CDG", "ORY"]);
+      const cityCode = airport => parisAirports.has(airport) ? "PAR" : airport;
+      const reservationTimes = new Map();
+      const flightLines = raw.matchAll(/^ *\d+ +([A-Z0-9]{2}) *(\d{1,4}) +[A-Z] +(\d{2}[A-Z]{3}) +(?:[1-7] +)?([A-Z]{6}) +[A-Z]{2}\d+ +[^\r\n]*?\b([0-2]\d[0-5]\d) +([0-2]\d[0-5]\d)([+-]\d+)?(?= *(?:\*|$))/gm);
+      for (const [, airline, flight, date, airports, departure, arrival, dayOffset] of flightLines) {
+        const key = `${airline}:${Number(flight)}:${date}:${cityCode(airports.slice(0, 3))}`;
+        const entries = reservationTimes.get(key) || [];
+        entries.push({ destination: airports.slice(3), departure, arrival, dayOffset });
+        reservationTimes.set(key, entries);
+      }
+      const formatTime = time => `${time.slice(0, 2)}:${time.slice(2)}`;
+
       // Detecção inteligente do TST
       const segments = parseSegments(raw);
       if (segments.length > 0) {
@@ -618,10 +631,17 @@ function ModuloTarifas() {
           const orgStr = `${orgName} (${s.origin})`;
           const destStr = `${destName} (${s.dest})`;
           
-          let timeStr = s.time;
-          if (s.time && s.time.length === 4) {
-            timeStr = `${s.time.slice(0, 2)}:${s.time.slice(2)}`;
-          }
+          const key = `${s.al}:${Number(s.flightNum)}:${s.date}:${cityCode(s.origin)}`;
+          const entries = reservationTimes.get(key) || [];
+          const directMatch = entries.find(entry => entry.destination === s.dest);
+          const cityMatch = entries.filter(entry =>
+            cityCode(entry.destination) === cityCode(s.dest)
+          );
+          const times = directMatch || (cityMatch.length === 1 ? cityMatch[0] : undefined);
+          const timeStr = formatTime(times?.departure || s.time);
+          const arrivalStr = times
+            ? ` ${formatTime(times.arrival)}${times.dayOffset ? ` (${times.dayOffset})` : ''}`
+            : '';
 
           return {
             ciaFlight,
@@ -629,6 +649,7 @@ function ModuloTarifas() {
             orgStr,
             destStr,
             timeStr,
+            arrivalStr,
             dest: s.dest
           };
         });
@@ -648,7 +669,7 @@ function ModuloTarifas() {
         processed.forEach((p, idx) => {
           const ciaFormatted = p.ciaFlight.padEnd(maxCiaFlight, ' ');
           const orgFormatted = p.orgStr.padEnd(maxOrg, ' ');
-          rotStr += `${ciaFormatted} ➔ ${p.date} ➔ ${orgFormatted}${p.timeStr} ➔ ${p.destStr}\n`;
+          rotStr += `${ciaFormatted} ➔ ${p.date} ➔ ${orgFormatted}${p.timeStr} ➔ ${p.destStr}${p.arrivalStr}\n`;
 
           // Detecta Surface (trecho terrestre)
           const nextSegment = segments[idx + 1];
