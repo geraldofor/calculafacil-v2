@@ -584,10 +584,10 @@ function ModuloTarifas() {
       const sameAirport = (airport, routeCode) =>
         airport === routeCode || cityByAirport[airport] === routeCode || cityByAirport[routeCode] === airport;
       const reservationSegments = [];
-      const flightLines = raw.matchAll(/^[ \t]*\d+[ \t]+([A-Z0-9]{2})[ \t]*(\d{1,4})[ \t]+([A-Z])[ \t]+(\d{2}[A-Z]{3})[ \t]+(?:[1-7][ \t]+)?([A-Z]{6})[ \t]+[A-Z]{2}\d+[ \t]+[^\r\n]*?\b((?:[01]\d|2[0-3])[0-5]\d)[ \t]+((?:[01]\d|2[0-3])[0-5]\d)([+-]\d+)?(?=[ \t]*(?:\*|$))/gm);
-      for (const [, al, flightNum, bk, date, airports, time, arrival, dayOffset] of flightLines) {
+      const flightLines = raw.matchAll(/^[ \t]*\d+[ \t]+([A-Z0-9]{2})[ \t]*(\d{1,4})[ \t]+([A-Z])[ \t]+(\d{2}[A-Z]{3})[ \t]+(?:[1-7][ \t]+)?([A-Z]{3})[ \t]*([A-Z]{3})[ \t]+[A-Z]{2}\d+[ \t]+[^\r\n]*\b((?:[01]\d|2[0-3])[0-5]\d)[ \t]+((?:[01]\d|2[0-3])[0-5]\d)([+-]\d+)?(?=[ \t]*(?:\*|[A-Z][A-Z0-9/*-]*(?:[ \t]|$)|$))/gm);
+      for (const [, al, flightNum, bk, date, origin, dest, time, arrival, dayOffset] of flightLines) {
         reservationSegments.push({
-          al, flightNum, bk, date, origin: airports.slice(0, 3), dest: airports.slice(3),
+          al, flightNum, bk, date, origin, dest,
           time, arrival, dayOffset
         });
       }
@@ -630,13 +630,19 @@ function ModuloTarifas() {
           const orgStr = `${orgName} (${s.origin})`;
           const destStr = `${destName} (${s.dest})`;
           
-          const candidates = reservationSegments.filter(segment =>
+          const sameFlight = reservationSegments.filter(segment =>
             segment.al === s.al && Number(segment.flightNum) === Number(s.flightNum) &&
-            segment.date === s.date && (!s.origin || sameAirport(segment.origin, s.origin)) &&
-            sameAirport(segment.dest, s.dest)
+            segment.date === s.date
           );
-          const exactMatch = candidates.find(segment => segment.origin === s.origin && segment.dest === s.dest);
-          const times = s.arrival ? s : exactMatch || (candidates.length === 1 ? candidates[0] : s);
+          const exactMatch = sameFlight.find(segment => segment.origin === s.origin && segment.dest === s.dest);
+          const routeMatches = sameFlight.filter(segment =>
+            (!s.origin || sameAirport(segment.origin, s.origin)) && sameAirport(segment.dest, s.dest)
+          );
+          // Códigos de cidade ainda fora do mapa podem ser resolvidos pelo voo e pela saída.
+          const timeMatches = sameFlight.filter(segment => segment.time === s.time);
+          const match = exactMatch || (routeMatches.length === 1 ? routeMatches[0] : undefined)
+            || (timeMatches.length === 1 ? timeMatches[0] : undefined);
+          const times = s.arrival ? s : match || s;
           const timeStr = formatTime(times.time);
           const arrivalStr = times.arrival
             ? ` ${formatTime(times.arrival)}${times.dayOffset ? ` (${times.dayOffset})` : ''}`
